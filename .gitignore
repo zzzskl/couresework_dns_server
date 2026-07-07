@@ -1,0 +1,49 @@
+# 模块输出目录
+server/
+coder/
+decoder/
+
+# 根目录遗留旧输出文件
+captured.hex
+output.hex
+output.bin
+parsed.json
+response.hex
+
+# Reasonix 工具配置
+.reasonix/
+reasonix.toml
+
+# 代码图工具
+.codegraph/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+*.whl
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS 元文件
+Thumbs.db
+.DS_Store
+
+# 测试覆盖率
+.coverage
+htmlcov/
+coverage.xml
+
+# 环境变量与日志
+.env
+*.log
