@@ -45,12 +45,6 @@ def _parse_id(value: Any) -> int:
     return int(value)
 
 
-def _dict_key_class(obj: Any, key: str, value: Any) -> None:
-    """
-    辅助：将属性名 'rr_class' 在 dict 中存为键 'class'。
-    反之将 dict 键 'class' 读为属性 'rr_class'。
-    """
-
 
 # ══════════════════════════════════════════════════════════════════
 # 类型定义
@@ -345,11 +339,3 @@ class DnsMessage:
         return encode_message(self, use_compression=use_compression)
 
 
-# ══════════════════════════════════════════════════════════════════
-# 简写别名
-# ══════════════════════════════════════════════════════════════════
-
-DNSHeader = DnsHeader
-DNSQuestion = DnsQuestion
-DNSResourceRecord = DnsResourceRecord
-DNSMessage = DnsMessage

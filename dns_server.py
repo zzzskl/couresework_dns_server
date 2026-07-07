@@ -12,6 +12,7 @@ LISTEN_PORT = 5354               # 监听端口 (5353被系统mDNS占用，改�
 OUTPUT_FILE = "server/captured.hex"   # 保存的 Hex 文件名
 AUTO_REPLY = True                # 是否自动回复（构造合法 DNS 响应）
 SAMPLE_ANSWER = "10.0.0.1"       # AUTO_REPLY 时返回的 A 记录 IP
+SAMPLE_ANSWER_AAAA = "::1"        # AUTO_REPLY 时返回的 AAAA 记录 IP
 # ================================================================
 
 import socket
@@ -36,7 +37,7 @@ def build_response(query: DnsMessage, answer_ip: str) -> DnsMessage:
             )
         elif q.qtype == 28:  # AAAA 记录
             answers.append(
-                DnsResourceRecord.create_aaaa(q.qname, "::1")
+                DnsResourceRecord.create_aaaa(q.qname, SAMPLE_ANSWER_AAAA)
             )
         elif q.qtype == 5:   # CNAME
             answers.append(
@@ -56,7 +57,7 @@ def main():
     print(f"[*] DNS 拦截器已启动，监听 {LISTEN_IP}:{LISTEN_PORT}")
     print(f"[*] 保存文件: {OUTPUT_FILE}")
     print(f"[*] AUTO_REPLY={'ON' if AUTO_REPLY else 'OFF'} "
-          f"(answer IP: {SAMPLE_ANSWER})")
+          f"(A: {SAMPLE_ANSWER}, AAAA: {SAMPLE_ANSWER_AAAA})")
     print("[*] 等待客户端请求... (按 Ctrl+C 退出)\n")
 
     try:

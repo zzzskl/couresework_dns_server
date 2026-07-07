@@ -10,6 +10,9 @@ output.bin
 parsed.json
 response.hex
 
+# 临时文件
+_temp.py
+
 # Reasonix 工具配置
 .reasonix/
 reasonix.toml

@@ -332,7 +332,7 @@ def encode_message(parsed: Union['DnsMessage', Dict[str, Any]],
     else:
         # 浅拷贝 header，不修改调用方传入的 dict
         d = dict(parsed)
-        if 'header' in d and d['header']:
+        if 'header' in d:
             h = dict(d['header'])
             h['qdcount'] = len(d.get('questions', []))
             h['ancount'] = len(d.get('answers', []))

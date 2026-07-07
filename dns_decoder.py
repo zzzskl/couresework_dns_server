@@ -21,11 +21,11 @@ import os
 from typing import Tuple, Any, Dict, List
 
 # ---------- 常量映射（从公共模块导入）---------
-from dns_common import QTYPE_REVERSE as QTYPE_MAP, QCLASS_REVERSE as QCLASS_MAP, RCODE_MAP, decode_domain
+from dns_common import QTYPE_REVERSE, QCLASS_REVERSE, RCODE_MAP, decode_domain
 from dns_types import DnsMessage
 
 # ---------- 核心解析函数 ----------
-def parse_rdata(data: bytes, offset: int, rtype: int, rdlength: int) -> Tuple[Any, int]:
+def _parse_rdata(data: bytes, offset: int, rtype: int, rdlength: int) -> Tuple[Any, int]:
     end = offset + rdlength
     if rtype == 1:  # A
         return '.'.join(str(b) for b in data[offset:end]), end
@@ -68,13 +68,13 @@ def _parse_rr(data: bytes, offset: int) -> Tuple[Dict[str, Any], int]:
     name, offset = decode_domain(data, offset)
     rtype, rclass, ttl, rdlen = struct.unpack('!HHIH', data[offset:offset + 10])
     offset += 10
-    rdata, offset = parse_rdata(data, offset, rtype, rdlen)
+    rdata, offset = _parse_rdata(data, offset, rtype, rdlen)
     record = {
         'name': name,
         'type': rtype,
-        'type_str': QTYPE_MAP.get(rtype, 'Unknown'),
+        'type_str': QTYPE_REVERSE.get(rtype, 'Unknown'),
         'class': rclass,
-        'class_str': QCLASS_MAP.get(rclass, 'Unknown'),
+        'class_str': QCLASS_REVERSE.get(rclass, 'Unknown'),
         'ttl': ttl,
         'rdata': rdata
     }
@@ -109,9 +109,9 @@ def decode(data: bytes) -> DnsMessage:
         questions.append({
             'qname': name,
             'qtype': qtype,
-            'qtype_str': QTYPE_MAP.get(qtype, 'Unknown'),
+            'qtype_str': QTYPE_REVERSE.get(qtype, 'Unknown'),
             'qclass': qclass,
-            'qclass_str': QCLASS_MAP.get(qclass, 'Unknown')
+            'qclass_str': QCLASS_REVERSE.get(qclass, 'Unknown')
         })
     
     answers = []
