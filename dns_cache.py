@@ -24,6 +24,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from dns_common import extract_ns_glue_pairs
 from dns_types import DnsMessage, DnsResourceRecord
 
 # ══════════════════════════════════════════════════════════════════
@@ -328,8 +329,8 @@ def extract_ns_delegations(
     """
     从 DNS 响应中提取 NS 委派信息。
 
-    遍历 Authority 中的 NS 记录，匹配 Additional 中的 A/AAAA glue，
-    返回 {domain_lower: (ns_records, glue_records)} 字典。
+    遍历 Authority 中的 NS 记录，通过 extract_ns_glue_pairs 匹配
+    Additional 中的 A/AAAA glue，返回 {domain_lower: (ns_records, glue_records)}。
 
     Args:
         msg: DNS 响应报文
@@ -337,29 +338,25 @@ def extract_ns_delegations(
     Returns:
         字典：域名小写 → (NS 记录列表, glue A/AAAA 记录列表)
     """
-    # 收集 Authority 中的 NS 记录
+    # 按域名分组 Authority 中的 NS 记录
     ns_map: Dict[str, List[DnsResourceRecord]] = defaultdict(list)
     for rr in msg.authorities:
-        if rr.type == 2:  # NS
+        if rr.rr_type == 2:  # NS
             ns_map[rr.name.lower()].append(rr)
 
     if not ns_map:
         return {}
 
-    # 收集 Additional 中的 A/AAAA 记录（潜在 glue）
-    glue_by_name: Dict[str, List[DnsResourceRecord]] = defaultdict(list)
-    for rr in msg.additionals:
-        if rr.type in (1, 28):  # A or AAAA
-            glue_by_name[rr.name.lower()].append(rr)
+    # 使用共享工具函数获取 NS 目标 → glue 映射
+    glue_map = extract_ns_glue_pairs(msg.authorities, msg.additionals)
 
     result: Dict[str, Tuple[List[DnsResourceRecord], List[DnsResourceRecord]]] = {}
     for domain, nss in ns_map.items():
-        # 找这些 NS 目标域名对应的 glue
         glue: List[DnsResourceRecord] = []
         for ns_rr in nss:
             ns_target = ns_rr.rdata.lower() if isinstance(ns_rr.rdata, str) else ''
-            if ns_target in glue_by_name:
-                glue.extend(glue_by_name[ns_target])
+            if ns_target in glue_map:
+                glue.extend(glue_map[ns_target])
         result[domain] = (nss, glue)
 
     return result

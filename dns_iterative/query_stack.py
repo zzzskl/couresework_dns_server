@@ -28,6 +28,7 @@ Query Stack 是一个有状态的复合对象：
 
 from __future__ import annotations
 
+from dns_common import extract_ns_glue_pairs
 from dns_iterative.engine_infra import StackBase, StateMachineBase
 from dns_iterative.models import QueryResult, QueryStatus
 from dns_transport import (
@@ -149,23 +150,11 @@ class QueryStack(StackBase[QueryFrame], StateMachineBase[QueryStatus]):
         """
         判断响应是否为 NS + 胶水（自旋条件）。
 
-        判断标准：
-            权威段有 NS 记录，且附加段有对应的 A/AAAA 胶水记录。
-            仅检查 arcount>0 不够（EDNS OPT 伪记录也会计入），
-            必须验证附加段 A/AAAA 记录的 name 匹配某个 NS 目标域名。
+        判断标准：权威段有 NS 记录，且附加段有对应的 A/AAAA 胶水记录。
+        通过共享工具函数 extract_ns_glue_pairs 实现。
         """
-        if response.nscount == 0:
-            return False
-        ns_targets = {
-            rec.rdata for rec in response.authorities
-            if rec.type == 2  # NS
-        }
-        if not ns_targets:
-            return False
-        for rec in response.additionals:
-            if rec.type in (1, 28) and rec.name in ns_targets:  # A/AAAA + 匹配 NS 目标
-                return True
-        return False
+        glue_map = extract_ns_glue_pairs(response.authorities, response.additionals)
+        return len(glue_map) > 0
 
     def _build_glue_frame(self, response: DnsMessage) -> QueryFrame:
         """
@@ -176,11 +165,11 @@ class QueryStack(StackBase[QueryFrame], StateMachineBase[QueryStatus]):
             AssertionError: _has_ns_glue 返回 True 但未找到胶水 IP（不应发生）。
         """
         ns_targets = {
-            rec.rdata for rec in response.authorities if rec.type == 2
+            rec.rdata for rec in response.authorities if rec.rr_type == 2
         }
         current = self._peek()
         for rec in response.additionals:
-            if rec.type in (1, 28) and rec.name in ns_targets:
+            if rec.rr_type in (1, 28) and rec.name in ns_targets:
                 return QueryFrame(
                     rec.rdata,
                     current.domain,

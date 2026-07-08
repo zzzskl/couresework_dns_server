@@ -9,7 +9,7 @@ DNS 公共模块 — 提供 coder / decoder / client / resolver 共享的
 """
 
 import struct
-from typing import Tuple
+from typing import Any, Dict, List, Tuple
 
 # ══════════════════════════════════════════════════════════════════
 # 类型/类/响应码 常量映射
@@ -133,8 +133,39 @@ def build_query(domain: str, qtype: str = "A") -> bytes:
     return header + question
 
 
-# ══════════════════════════════════════════════════════════════════
-# 日志工具（从独立模块导出，方便各模块调用）
-# ══════════════════════════════════════════════════════════════════
+def extract_ns_glue_pairs(
+    authorities: List[Any],
+    additionals: List[Any],
+) -> Dict[str, List[Any]]:
+    """
+    从 DNS 响应的 Authority / Additional 段提取 NS 胶水对。
 
-from logger import setup_logger  # noqa: F401
+    遍历 authorities 中的 NS 记录，在 additionals 中匹配同名的 A/AAAA 胶水。
+    返回 {ns_domain: [matching_a_aaaa_records]} 映射。
+
+    Args:
+        authorities: 权威段的 RR 列表（DnsResourceRecord 或兼容对象）
+        additionals: 附加段的 RR 列表（DnsResourceRecord 或兼容对象）
+
+    Returns:
+        {ns_domain_lower: [glue_A_AAAA_records]} 每个 NS 域名对应的胶水记录列表
+    """
+    # 收集 Authority 中的 NS 记录目标域名
+    ns_targets: set[str] = set()
+    for rr in authorities:
+        if rr.rr_type == 2:  # NS
+            ns_targets.add(rr.rdata.lower())
+
+    if not ns_targets:
+        return {}
+
+    # 收集 Additional 中与 NS 目标域名匹配的 A/AAAA 胶水
+    result: Dict[str, List[Any]] = {}
+    for rec in additionals:
+        if rec.rr_type in (1, 28) and rec.name.lower() in ns_targets:
+            result.setdefault(rec.name.lower(), []).append(rec)
+
+    return result
+
+
+# 各模块请直接从 logger 模块导入 setup_logger，保持职责单一

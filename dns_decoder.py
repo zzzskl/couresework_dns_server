@@ -3,16 +3,11 @@
 
 """
 DNS Hex 解码器 - 将 Hex 文本解析为人类可读的数据结构（JSON）
-用法: 修改下方配置后直接运行
+
+核心 API: decode(), _parse_rdata(), _parse_rr()
+CLI 入口: 运行 `python dns_decoder.py` 或调用 main()
 """
 
-# ======================== 解码器配置区域 ========================
-INPUT_MODE = "file"            # "file" 或 "stdin"
-INPUT_FILE = "server/captured.hex"    # INPUT_MODE="file" 时读取此文件
-OUTPUT_MODE = "both"           # "stdout", "file", "both"
-OUTPUT_JSON_FILE = "decoder/parsed.json"
-PRINT_RAW_HEX = True           # 输出中是否包含原始 Hex
-# ================================================================
 
 import json
 import struct
@@ -24,7 +19,11 @@ from typing import Tuple, Any, Dict, List
 from dns_common import QTYPE_REVERSE, QCLASS_REVERSE, RCODE_MAP, decode_domain
 from dns_types import DnsMessage
 
-# ---------- 核心解析函数 ----------
+# ══════════════════════════════════════════════════════════════════
+# 核心 API — 解码函数
+# ══════════════════════════════════════════════════════════════════
+
+
 def _parse_rdata(data: bytes, offset: int, rtype: int, rdlength: int) -> Tuple[Any, int]:
     end = offset + rdlength
     if rtype == 1:  # A
@@ -81,7 +80,7 @@ def _parse_rr(data: bytes, offset: int) -> Tuple[Dict[str, Any], int]:
     return record, offset
 
 
-def decode(data: bytes) -> DnsMessage:
+def decode(data: bytes, include_raw_hex: bool = False) -> DnsMessage:
     if len(data) < 12:
         raise ValueError("数据太短")
     
@@ -136,9 +135,22 @@ def decode(data: bytes) -> DnsMessage:
         'authorities': authorities,
         'additionals': additionals
     }
-    if PRINT_RAW_HEX:
+    if include_raw_hex:
         result['raw_hex'] = ' '.join(f'{b:02x}' for b in data)
     return DnsMessage.from_dict(result)
+
+
+
+# ══════════════════════════════════════════════════════════════════
+# CLI 配置与入口（模块级变量供测试 monkeypatch）
+# ══════════════════════════════════════════════════════════════════
+
+INPUT_MODE = "file"            # "file" 或 "stdin"
+INPUT_FILE = "server/captured.hex"    # INPUT_MODE="file" 时读取此文件
+OUTPUT_MODE = "both"           # "stdout", "file", "both"
+OUTPUT_JSON_FILE = "decoder/parsed.json"
+PRINT_RAW_HEX = True           # 输出中是否包含原始 Hex（CLI 模式）
+
 
 # ---------- 加载与输出 ----------
 def load_data() -> bytes:
@@ -176,7 +188,7 @@ def main():
     try:
         raw = load_data()
         print(f"[+] 加载 {len(raw)} 字节")
-        parsed = decode(raw)
+        parsed = decode(raw, include_raw_hex=PRINT_RAW_HEX)
         output_result(parsed.to_dict())
     except Exception as e:
         print(f"[-] 错误: {e}")

@@ -3,17 +3,11 @@
 
 """
 DNS 编码器 - 将 decoder 输出的 JSON 数据结构重新编码为二进制 DNS 报文
-用法: 修改下方配置后直接运行
+
+核心 API: encode_message(), NameCompressor, encode_record()
+CLI 入口: 运行 `python dns_coder.py` 或调用 main()
 """
 
-# ======================== 编码器配置区域 ========================
-INPUT_MODE = "file"                 # "file" 或 "stdin"
-INPUT_JSON_FILE = "decoder/parsed.json"  # INPUT_MODE="file" 时读取此 JSON 文件
-OUTPUT_MODE = "both"                # "stdout", "file_hex", "file_bin", "both"
-OUTPUT_HEX_FILE = "coder/output.hex"      # 十六进制文本输出（空格分隔）
-OUTPUT_BIN_FILE = "coder/output.bin"      # 原始二进制输出
-PRINT_PROGRESS = True               # 是否打印编码过程
-# =================================================================
 
 import json
 import struct
@@ -367,6 +361,18 @@ def encode_message(parsed: Union['DnsMessage', Dict[str, Any]],
             result += encoded
 
     return bytes(result)
+
+
+# ══════════════════════════════════════════════════════════════════
+# CLI 配置与入口（模块级变量供测试 monkeypatch）
+# ══════════════════════════════════════════════════════════════════
+
+INPUT_MODE = "file"                 # "file" 或 "stdin"
+INPUT_JSON_FILE = "decoder/parsed.json"  # INPUT_MODE="file" 时读取此 JSON 文件
+OUTPUT_MODE = "both"                # "stdout", "file_hex", "file_bin", "both"
+OUTPUT_HEX_FILE = "coder/output.hex"      # 十六进制文本输出（空格分隔）
+OUTPUT_BIN_FILE = "coder/output.bin"      # 原始二进制输出
+PRINT_PROGRESS = True               # 是否打印编码过程
 
 
 # ---------- 输入加载 ----------

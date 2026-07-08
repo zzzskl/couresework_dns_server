@@ -92,7 +92,7 @@ class ResolutionEngine:
                 msg = engine._cache.get_answer(domain, ts._qtype)
                 if msg is not None:
                     answer_ip = next(
-                        (r.rdata for r in msg.answers if r.type in (1, 28)),
+                        (r.rdata for r in msg.answers if r.rr_type in (1, 28)),
                         None,
                     )
                     ts._result_data = TaskResult(response=msg, answer_ip=answer_ip)

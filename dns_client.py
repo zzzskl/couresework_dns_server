@@ -2,7 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-DNS 客户端 — 基于 DnsMessage 对象层构造查询并解析响应
+DNS 客户端 (LEGACY) — 基于 DnsMessage 对象层构造查询并解析响应
+
+.. deprecated::
+    此模块仅为向后兼容保留。新代码请使用 ``dns_transport.AsyncUdpTransport``
+    进行异步查询，或直接使用 ``DnsMessage.create_query()`` + ``dns_decoder.decode()``。
 用法: 修改下方配置后直接运行
 """
 

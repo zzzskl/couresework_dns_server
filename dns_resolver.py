@@ -2,18 +2,20 @@
 # -*- coding: utf-8 -*-
 
 """
-DNS 解析器 — 基于 DnsMessage 对象层，与上游真实 DNS 服务器通信
+DNS 解析器 (LEGACY) — 与上游真实 DNS 服务器通信。
 
-功能:
-    - resolve(query_bytes, ...) → bytes   (bytes 级接口，向后兼容)
-    - main()                              (命令行入口，展示对象层用法)
+.. deprecated::
+    此模块仅为向后兼容保留。新代码请使用 ``dns_transport.AsyncUdpTransport``
+    （异步对象层 API）或 ``dns_iterative.engine.ResolutionEngine``（完整迭代解析）。
+
+遗留功能:
+    - resolve(query_bytes, ...) → bytes   (bytes 级接口)
+    - main()                              (命令行入口)
 
 用法:
-    1. 直接运行: 修改下方配置后 python dns_resolver.py
-    2. 作为模块:
-         obj = DnsMessage.create_query("www.baidu.com")
-         resp_bytes = resolve(obj.to_bytes(), "8.8.8.8", 53)
-         resp_msg = decode(resp_bytes)
+    新代码推荐:
+        transport = AsyncUdpTransport()
+        result = await transport.query(QueryFrame('8.8.8.8', 'www.baidu.com', 1))
 """
 
 # ======================== 解析器配置区域 ========================

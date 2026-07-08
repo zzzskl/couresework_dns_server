@@ -163,11 +163,11 @@ class TaskStack(StackBase[Task]):
 
     def _has_answer(self, response: DnsMessage) -> bool:
         """答案段是否有非 CNAME 的有效答案记录。"""
-        return any(rec.type != 5 for rec in response.answers)
+        return any(rec.rr_type != 5 for rec in response.answers)
 
     def _has_cname(self, response: DnsMessage) -> bool:
         """答案段是否有 CNAME 记录。"""
-        return any(rec.type == 5 for rec in response.answers)
+        return any(rec.rr_type == 5 for rec in response.answers)
 
     def _has_referral(self, response: DnsMessage) -> bool:
         """权威段是否有 NS 记录（且无胶水——胶水已在 Query 层处理）。"""
@@ -185,7 +185,7 @@ class TaskStack(StackBase[Task]):
             )
         answer_ip = None
         for rec in response.answers:
-            if rec.type in (1, 28):  # A or AAAA
+            if rec.rr_type in (1, 28):  # A or AAAA
                 answer_ip = rec.rdata
                 break
         self._result_data = TaskResult(response=response, answer_ip=answer_ip)
@@ -198,7 +198,7 @@ class TaskStack(StackBase[Task]):
         """
         transition_status(task, TaskStatus.CNAME, TaskStatus.PENDING)
         for rec in response.answers:
-            if rec.type == 5:  # CNAME
+            if rec.rr_type == 5:  # CNAME
                 target = rec.rdata
                 if not self._was_visited(target):
                     self._mark_visited(target)
@@ -213,7 +213,7 @@ class TaskStack(StackBase[Task]):
         """
         transition_status(task, TaskStatus.PAUSED, TaskStatus.PENDING)
         for rec in response.authorities:
-            if rec.type == 2:  # NS
+            if rec.rr_type == 2:  # NS
                 ns_domain = rec.rdata
                 self.push(ns_domain)  # 由 Engine 增强版处理缓存
                 break

@@ -133,7 +133,7 @@ class DnsQuestion:
 class DnsResourceRecord:
     """DNS Resource Record (Answer / Authority / Additional)"""
     name: str = ''
-    type: int = 1
+    rr_type: int = 1
     type_str: str = ''
     rr_class: int = 1
     class_str: str = ''
@@ -143,8 +143,8 @@ class DnsResourceRecord:
     def to_dict(self) -> Dict[str, Any]:
         return {
             'name': self.name,
-            'type': self.type,
-            'type_str': self.type_str or QTYPE_MAP.get(self.type, 'Unknown'),
+            'type': self.rr_type,
+            'type_str': self.type_str or QTYPE_MAP.get(self.rr_type, 'Unknown'),
             'class': self.rr_class,              # 用 'class' 键名兼容现有 pipeline
             'class_str': self.class_str or QCLASS_MAP.get(self.rr_class, 'Unknown'),
             'ttl': self.ttl,
@@ -155,7 +155,7 @@ class DnsResourceRecord:
     def from_dict(cls, d: Dict[str, Any]) -> 'DnsResourceRecord':
         return cls(
             name=d.get('name', ''),
-            type=int(d.get('type', 1)),
+            rr_type=int(d.get('type', 1)),
             type_str=d.get('type_str', ''),
             rr_class=int(d.get('class', 1)),      # dict 键 'class' → 属性 rr_class
             class_str=d.get('class_str', ''),
@@ -168,32 +168,32 @@ class DnsResourceRecord:
     @classmethod
     def create_a(cls, name: str, ip: str, ttl: int = 300) -> 'DnsResourceRecord':
         """创建 A 记录"""
-        return cls(name=name, type=1, type_str='A', rr_class=1,
+        return cls(name=name, rr_type=1, type_str='A', rr_class=1,
                    class_str='IN', ttl=ttl, rdata=ip)
 
     @classmethod
     def create_aaaa(cls, name: str, ip6: str, ttl: int = 300) -> 'DnsResourceRecord':
         """创建 AAAA 记录"""
-        return cls(name=name, type=28, type_str='AAAA', rr_class=1,
+        return cls(name=name, rr_type=28, type_str='AAAA', rr_class=1,
                    class_str='IN', ttl=ttl, rdata=ip6)
 
     @classmethod
     def create_cname(cls, name: str, alias: str, ttl: int = 300) -> 'DnsResourceRecord':
         """创建 CNAME 记录"""
-        return cls(name=name, type=5, type_str='CNAME', rr_class=1,
+        return cls(name=name, rr_type=5, type_str='CNAME', rr_class=1,
                    class_str='IN', ttl=ttl, rdata=alias)
 
     @classmethod
     def create_ns(cls, name: str, ns_domain: str, ttl: int = 300) -> 'DnsResourceRecord':
         """创建 NS 记录"""
-        return cls(name=name, type=2, type_str='NS', rr_class=1,
+        return cls(name=name, rr_type=2, type_str='NS', rr_class=1,
                    class_str='IN', ttl=ttl, rdata=ns_domain)
 
     @classmethod
     def create_mx(cls, name: str, preference: int, exchange: str,
                   ttl: int = 300) -> 'DnsResourceRecord':
         """创建 MX 记录"""
-        return cls(name=name, type=15, type_str='MX', rr_class=1,
+        return cls(name=name, rr_type=15, type_str='MX', rr_class=1,
                    class_str='IN', ttl=ttl,
                    rdata={'preference': preference, 'exchange': exchange})
 
