@@ -10,16 +10,15 @@ DNS 缓存层 — 答案缓存 + 负缓存 + 委派缓存。
 用法:
     cache = DnsCache()
     # 查缓存
-    entry = await cache.get("www.example.com", 1, 1)
+    entry = cache.get("www.example.com", 1, 1)
     if entry and not entry.is_expired:
         msg = entry.to_message()
     # 写缓存
-    await cache.set_answer("www.example.com", 1, 1, response_msg)
+    cache.set_answer("www.example.com", 1, 1, response_msg)
 """
 
 from __future__ import annotations
 
-import asyncio
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -136,17 +135,16 @@ class DnsCache:
     """
     DNS 缓存容器。
 
-    线程安全（asyncio.Lock），支持 TTL 过期懒清理、负缓存。
+    支持 TTL 过期懒清理、负缓存。
     同一容器可同时用作 Answer Cache 和 Delegation Cache。
     """
 
     def __init__(self) -> None:
         self._store: Dict[str, CacheEntry] = {}
-        self._lock = asyncio.Lock()
 
     # ── 核心读写 ──────────────────────────────────────────────────
 
-    async def get(
+    def get(
         self,
         domain: str,
         qtype: int,
@@ -158,16 +156,15 @@ class DnsCache:
         若条目已过期则自动删除并返回 None（懒清理）。
         """
         key = _make_key(domain, qtype, qclass)
-        async with self._lock:
-            entry = self._store.get(key)
-            if entry is None:
-                return None
-            if entry.is_expired:
-                del self._store[key]
-                return None
-            return entry
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        if entry.is_expired:
+            del self._store[key]
+            return None
+        return entry
 
-    async def set(
+    def set(
         self,
         domain: str,
         qtype: int,
@@ -176,10 +173,9 @@ class DnsCache:
     ) -> None:
         """写入缓存条目。"""
         key = _make_key(domain, qtype, qclass)
-        async with self._lock:
-            self._store[key] = entry
+        self._store[key] = entry
 
-    async def delete(
+    def delete(
         self,
         domain: str,
         qtype: int,
@@ -187,15 +183,14 @@ class DnsCache:
     ) -> bool:
         """删除缓存条目，返回是否存在。"""
         key = _make_key(domain, qtype, qclass)
-        async with self._lock:
-            if key in self._store:
-                del self._store[key]
-                return True
-            return False
+        if key in self._store:
+            del self._store[key]
+            return True
+        return False
 
     # ── 批量操作 ──────────────────────────────────────────────────
 
-    async def clear_expired(self) -> int:
+    def clear_expired(self) -> int:
         """
         清理所有已过期的条目。
 
@@ -203,16 +198,14 @@ class DnsCache:
             被清理的条目数量。
         """
         now = time.time()
-        async with self._lock:
-            expired_keys = [k for k, v in self._store.items() if now >= v.expires_at]
-            for k in expired_keys:
-                del self._store[k]
-            return len(expired_keys)
+        expired_keys = [k for k, v in self._store.items() if now >= v.expires_at]
+        for k in expired_keys:
+            del self._store[k]
+        return len(expired_keys)
 
-    async def clear(self) -> None:
+    def clear(self) -> None:
         """清空全部缓存。"""
-        async with self._lock:
-            self._store.clear()
+        self._store.clear()
 
     @property
     def size(self) -> int:
@@ -221,7 +214,7 @@ class DnsCache:
 
     # ── 答案缓存便捷方法 ─────────────────────────────────────────
 
-    async def get_answer(
+    def get_answer(
         self,
         domain: str,
         qtype: int,
@@ -232,12 +225,12 @@ class DnsCache:
 
         返回重建的 DnsMessage，或 None。
         """
-        entry = await self.get(domain, qtype, qclass)
+        entry = self.get(domain, qtype, qclass)
         if entry is None:
             return None
         return entry.to_message()
 
-    async def set_answer(
+    def set_answer(
         self,
         domain: str,
         qtype: int,
@@ -262,11 +255,11 @@ class DnsCache:
         entry.domain = domain.lower()
         entry.qtype = qtype
         entry.qclass = qclass
-        await self.set(domain, qtype, qclass, entry)
+        self.set(domain, qtype, qclass, entry)
 
     # ── 委派缓存便捷方法 ─────────────────────────────────────────
 
-    async def get_delegation(
+    def get_delegation(
         self,
         domain: str,
     ) -> Optional[Tuple[List[DnsResourceRecord], List[DnsResourceRecord]]]:
@@ -276,12 +269,12 @@ class DnsCache:
         Returns:
             (ns_records, glue_records) 或 None。
         """
-        entry = await self.get(domain, 2, 1)  # qtype=2=NS
+        entry = self.get(domain, 2, 1)  # qtype=2=NS
         if entry is None:
             return None
         return (list(entry.answers), list(entry.additionals))
 
-    async def set_delegation(
+    def set_delegation(
         self,
         domain: str,
         ns_records: List[DnsResourceRecord],
@@ -308,7 +301,7 @@ class DnsCache:
             expires_at=time.time() + ttl,
             is_negative=False,
         )
-        await self.set(domain, 2, 1, entry)
+        self.set(domain, 2, 1, entry)
 
 
 # ══════════════════════════════════════════════════════════════════

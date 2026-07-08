@@ -157,38 +157,38 @@ class TestDnsCache:
 
     def test_get_miss(self, cache):
         """不存在的 key → 返回 None。"""
-        result = asyncio.run(cache.get("www.example.com", 1))
+        result = cache.get("www.example.com", 1)
         assert result is None
 
     def test_set_and_get(self, cache, sample_msg):
         """set 后 get 应返回相同的条目。"""
-        asyncio.run(cache.set_answer("www.example.com", 1, 1, sample_msg))
-        entry = asyncio.run(cache.get("www.example.com", 1))
+        cache.set_answer("www.example.com", 1, 1, sample_msg)
+        entry = cache.get("www.example.com", 1)
         assert entry is not None
         assert len(entry.answers) == 1
         assert entry.answers[0].rdata == "1.2.3.4"
 
     def test_get_answer(self, cache, sample_msg):
         """get_answer 返回重建的 DnsMessage。"""
-        asyncio.run(cache.set_answer("www.example.com", 1, 1, sample_msg))
-        msg = asyncio.run(cache.get_answer("www.example.com", 1))
+        cache.set_answer("www.example.com", 1, 1, sample_msg)
+        msg = cache.get_answer("www.example.com", 1)
         assert msg is not None
         assert len(msg.answers) == 1
         assert msg.answers[0].rdata == "1.2.3.4"
 
     def test_delete(self, cache, sample_msg):
         """delete 移除条目。"""
-        asyncio.run(cache.set_answer("www.example.com", 1, 1, sample_msg))
+        cache.set_answer("www.example.com", 1, 1, sample_msg)
         assert cache.size == 1
-        deleted = asyncio.run(cache.delete("www.example.com", 1))
+        deleted = cache.delete("www.example.com", 1)
         assert deleted
         assert cache.size == 0
-        result = asyncio.run(cache.get("www.example.com", 1))
+        result = cache.get("www.example.com", 1)
         assert result is None
 
     def test_delete_miss(self, cache):
         """delete 不存在的 key → 返回 False。"""
-        deleted = asyncio.run(cache.delete("nonexist", 1))
+        deleted = cache.delete("nonexist", 1)
         assert not deleted
 
     def test_key_precision(self, cache):
@@ -203,11 +203,11 @@ class TestDnsCache:
             query_aaaa,
             answers=[DnsResourceRecord.create_aaaa("www.example.com", "::1", ttl=300)],
         )
-        asyncio.run(cache.set_answer("www.example.com", 1, 1, resp_a))
-        asyncio.run(cache.set_answer("www.example.com", 28, 1, resp_aaaa))
+        cache.set_answer("www.example.com", 1, 1, resp_a)
+        cache.set_answer("www.example.com", 28, 1, resp_aaaa)
 
-        entry_a = asyncio.run(cache.get("www.example.com", 1))
-        entry_aaaa = asyncio.run(cache.get("www.example.com", 28))
+        entry_a = cache.get("www.example.com", 1)
+        entry_aaaa = cache.get("www.example.com", 28)
 
         assert entry_a is not None
         assert entry_a.answers[0].rdata == "1.2.3.4"
@@ -221,9 +221,9 @@ class TestDnsCache:
             query,
             answers=[DnsResourceRecord.create_a("www.example.com", "5.6.7.8", ttl=300)],
         )
-        asyncio.run(cache.set_answer("www.example.com", 1, 1, sample_msg))
-        asyncio.run(cache.set_answer("www.example.com", 1, 1, resp2))
-        entry = asyncio.run(cache.get("www.example.com", 1))
+        cache.set_answer("www.example.com", 1, 1, sample_msg)
+        cache.set_answer("www.example.com", 1, 1, resp2)
+        entry = cache.get("www.example.com", 1)
         assert entry is not None
         assert entry.answers[0].rdata == "5.6.7.8"
 
@@ -233,10 +233,10 @@ class TestDnsCache:
             "expired.example.com", 1, 1,
             expires_at=time.time() - 1,  # 已过期
         )
-        asyncio.run(cache.set("expired.example.com", 1, 1, entry))
+        cache.set("expired.example.com", 1, 1, entry)
         assert cache.size == 1  # 过期但尚未清理
 
-        result = asyncio.run(cache.get("expired.example.com", 1))
+        result = cache.get("expired.example.com", 1)
         assert result is None
         assert cache.size == 0  # 懒清理后自动删除
 
@@ -244,27 +244,27 @@ class TestDnsCache:
         """clear_expired 清理所有过期条目。"""
         fresh = CacheEntry("fresh.example.com", 1, 1, expires_at=time.time() + 3600)
         stale = CacheEntry("stale.example.com", 1, 1, expires_at=time.time() - 1)
-        asyncio.run(cache.set("fresh.example.com", 1, 1, fresh))
-        asyncio.run(cache.set("stale.example.com", 1, 1, stale))
+        cache.set("fresh.example.com", 1, 1, fresh)
+        cache.set("stale.example.com", 1, 1, stale)
         assert cache.size == 2
 
-        n = asyncio.run(cache.clear_expired())
+        n = cache.clear_expired()
         assert n == 1
         assert cache.size == 1
 
     def test_clear_all(self, cache, sample_msg):
         """clear 清空所有条目。"""
-        asyncio.run(cache.set_answer("www.example.com", 1, 1, sample_msg))
-        asyncio.run(cache.clear())
+        cache.set_answer("www.example.com", 1, 1, sample_msg)
+        cache.clear()
         assert cache.size == 0
 
     def test_negative_cache_flag(self, cache):
         """负缓存条目 is_negative=True。"""
         query = DnsMessage.create_query("nonexist.example.com", "A")
         resp = DnsMessage.create_response(query, rcode=3)
-        asyncio.run(cache.set_answer("nonexist.example.com", 1, 1, resp,
-                                     is_negative=True))
-        entry = asyncio.run(cache.get("nonexist.example.com", 1))
+        cache.set_answer("nonexist.example.com", 1, 1, resp,
+                                     is_negative=True)
+        entry = cache.get("nonexist.example.com", 1)
         assert entry is not None
         assert entry.is_negative
         assert entry.rcode == 3
@@ -286,9 +286,9 @@ class TestDelegationCache:
         """set_delegation → get_delegation 返回 (ns, glue)。"""
         ns = [DnsResourceRecord.create_ns("example.com", "ns1.example.com")]
         glue = [DnsResourceRecord.create_a("ns1.example.com", "1.2.3.4")]
-        asyncio.run(cache.set_delegation("example.com", ns, glue, ttl=3600))
+        cache.set_delegation("example.com", ns, glue, ttl=3600)
 
-        result = asyncio.run(cache.get_delegation("example.com"))
+        result = cache.get_delegation("example.com")
         assert result is not None
         ns_back, glue_back = result
         assert len(ns_back) == 1
@@ -298,7 +298,7 @@ class TestDelegationCache:
 
     def test_get_delegation_miss(self, cache):
         """不存在的委派 → 返回 None。"""
-        result = asyncio.run(cache.get_delegation("nonexist.com"))
+        result = cache.get_delegation("nonexist.com")
         assert result is None
 
     def test_extract_ns_delegations(self):
@@ -362,9 +362,9 @@ class TestResolutionEngineWithCache:
         cache = DnsCache()
         # 手动预热缓存
         query = DnsMessage.create_query("www.example.com", "A")
-        asyncio.run(cache.set_answer(
+        cache.set_answer(
             "www.example.com", 1, 1, sample_a_response,
-        ))
+        )
 
         engine = ResolutionEngine(mock_transport, cache=cache)
         result = asyncio.run(engine.resolve("www.example.com"))
@@ -466,7 +466,7 @@ class TestCacheCallback:
         target_a = make_dns_message(
             answers=[DnsResourceRecord.create_a("target.example.com", "5.6.7.8")],
         )
-        asyncio.run(cache.set_answer("target.example.com", 1, 1, target_a))
+        cache.set_answer("target.example.com", 1, 1, target_a)
 
         # 第一次查询 www.example.com 返回 CNAME → target.example.com
         cname_resp = make_dns_message(
@@ -516,7 +516,7 @@ class TestCacheCallback:
         ns_a = make_dns_message(
             answers=[DnsResourceRecord.create_a("ns1.example.com", "1.2.3.4")],
         )
-        asyncio.run(cache.set_answer("ns1.example.com", 1, 1, ns_a))
+        cache.set_answer("ns1.example.com", 1, 1, ns_a)
 
         # 第一次查询：NS 无胶水
         ns_no_glue = make_dns_message(
@@ -568,8 +568,8 @@ class TestCacheCallback:
     def test_cache_callback_not_called_without_cache(self, mock_transport):
         """不传 cache → cache_callback 为 None → callback 不会被调用。"""
         engine = ResolutionEngine(mock_transport, cache=None)
-        # 验证 _check_cache 在缓存为 None 时返回 None
-        result = asyncio.run(engine._check_cache("www.example.com", 1))
+        # 验证 _cache_lookup 在缓存为 None 时返回 None
+        result = engine._cache_lookup("www.example.com", 1)
         assert result is None
 
 
@@ -618,26 +618,20 @@ class TestConcurrency:
         """并发 set/get 不崩溃。"""
         cache = DnsCache()
 
-        async def worker(domain: str, ip: str):
+        for domain, ip in [
+            ("a.example.com", "1.1.1.1"),
+            ("b.example.com", "2.2.2.2"),
+            ("c.example.com", "3.3.3.3"),
+        ]:
             query = DnsMessage.create_query(domain, "A")
             resp = DnsMessage.create_response(
                 query,
                 answers=[DnsResourceRecord.create_a(domain, ip, ttl=300)],
             )
             for _ in range(20):
-                await cache.set_answer(domain, 1, 1, resp)
-                got = await cache.get_answer(domain, 1)
+                cache.set_answer(domain, 1, 1, resp)
+                got = cache.get_answer(domain, 1)
                 assert got is not None
-
-        async def run():
-            tasks = [
-                worker("a.example.com", "1.1.1.1"),
-                worker("b.example.com", "2.2.2.2"),
-                worker("c.example.com", "3.3.3.3"),
-            ]
-            await asyncio.gather(*tasks)
-
-        asyncio.run(run())
         assert cache.size == 3
 
 
@@ -656,12 +650,12 @@ class TestDelegationInitialTargets:
         """
         cache = DnsCache()
         # 预热委派缓存：example.com → ns1.example.com (1.2.3.4)
-        asyncio.run(cache.set_delegation(
+        cache.set_delegation(
             "example.com",
             ns_records=[DnsResourceRecord.create_ns("example.com", "ns1.example.com")],
             glue_records=[DnsResourceRecord.create_a("ns1.example.com", "1.2.3.4")],
             ttl=3600,
-        ))
+        )
 
         # 查询 www.example.com 的 A 记录
         # 第一次 transport 调用应直接到 ns1.example.com(1.2.3.4)，而非根服务器
@@ -686,12 +680,12 @@ class TestDelegationInitialTargets:
         """
         cache = DnsCache()
         # 预热委派缓存：example.com
-        asyncio.run(cache.set_delegation(
+        cache.set_delegation(
             "example.com",
             ns_records=[DnsResourceRecord.create_ns("example.com", "ns1.example.com")],
             glue_records=[DnsResourceRecord.create_a("ns1.example.com", "1.2.3.4")],
             ttl=3600,
-        ))
+        )
 
         # 查询 other.com → 不从委派缓存读，仍用根服务器
         a_resp = make_dns_message(

@@ -159,8 +159,13 @@ class TestTaskStack:
         mock_transport.add_response(sample_a_response)
         qs = QueryStack(mock_transport)
         ts = TaskStack()
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
         ts.push("www.baidu.com")
-        result = asyncio.run(ts.run(qs))
+        asyncio.run(ts.run())
+        result_data = ts._result_data
+        result = result_data.response if result_data else None
+
         assert result is not None
         assert result is sample_a_response
 
@@ -168,8 +173,10 @@ class TestTaskStack:
         """空栈 → run 立即返回 None。"""
         qs = QueryStack(mock_transport)
         ts = TaskStack()
-        result = asyncio.run(ts.run(qs))
-        assert result is None
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
+        asyncio.run(ts.run())
+        assert ts._result_data is None
 
     def test_push_check_depth(self, mock_transport):
         """压入 MAX_DEPTH+1 个任务应抛 RuntimeError。"""
@@ -180,7 +187,7 @@ class TestTaskStack:
         for i in range(MAX_DEPTH):
             ts.push(f"level{i}.baidu.com")
         # 再压一个应抛异常
-        with pytest.raises(RuntimeError, match="深度超过上限"):
+        with pytest.raises(RuntimeError, match="深度超限"):
             ts.push("overflow.baidu.com")
 
     # ── CNAME 链 ──────────────────────────────────────
@@ -198,8 +205,12 @@ class TestTaskStack:
 
         qs = QueryStack(mock_transport)
         ts = TaskStack()
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
         ts.push("www.baidu.com")
-        result = asyncio.run(ts.run(qs))
+        asyncio.run(ts.run())
+        result_data = ts._result_data
+        result = result_data.response if result_data else None
 
         assert result is not None
         assert result is a_resp
@@ -222,8 +233,12 @@ class TestTaskStack:
 
         qs = QueryStack(mock_transport)
         ts = TaskStack()
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
         ts.push("a.baidu.com")
-        result = asyncio.run(ts.run(qs))
+        asyncio.run(ts.run())
+        result_data = ts._result_data
+        result = result_data.response if result_data else None
 
         assert result is not None
         assert result is a_c
@@ -239,11 +254,14 @@ class TestTaskStack:
 
         qs = QueryStack(mock_transport)
         ts = TaskStack()
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
         ts.push("www.baidu.com")
-        result = asyncio.run(ts.run(qs))
+        asyncio.run(ts.run())
 
-        # CNAME 子任务无有效响应 → 应优雅处理，返回 None
-        assert result is None
+        # CNAME 子任务无有效响应 → result_data.error 非空，response 为 None
+        assert ts._result_data is not None
+        assert ts._result_data.response is None
 
     # ── PAUSED 恢复 ──────────────────────────────────
 
@@ -267,8 +285,12 @@ class TestTaskStack:
 
         qs = QueryStack(mock_transport)
         ts = TaskStack()
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
         ts.push("www.baidu.com")
-        result = asyncio.run(ts.run(qs))
+        asyncio.run(ts.run())
+        result_data = ts._result_data
+        result = result_data.response if result_data else None
 
         assert result is not None
         assert result is final_resp
@@ -285,11 +307,14 @@ class TestTaskStack:
 
         qs = QueryStack(mock_transport)
         ts = TaskStack()
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
         ts.push("www.baidu.com")
-        result = asyncio.run(ts.run(qs))
+        asyncio.run(ts.run())
 
-        # PAUSED 子任务无有效 result → 应优雅处理，返回 None
-        assert result is None
+        # PAUSED 子任务无有效 result → result_data.error 非空，response 为 None
+        assert ts._result_data is not None
+        assert ts._result_data.response is None
 
     # ── MAX_STEPS 限制 ───────────────────────────────
 
@@ -308,10 +333,13 @@ class TestTaskStack:
         # 实际上 MAX_STEPS 是全局步数，超过就返回 None
         qs = QueryStack(mock_transport)
         ts = TaskStack()
+        ts._query_stack = qs
+        ts._initial_targets = ["8.8.8.8"]
         ts.push("x.com")
-        result = asyncio.run(ts.run(qs))
-        # 步数耗尽后栈非空 → 返回 None
-        assert result is None
+        asyncio.run(ts.run())
+        # 步数耗尽后栈非空 → result_data.error 非空，response 为 None
+        assert ts._result_data is not None
+        assert ts._result_data.response is None
 
     # ── 空栈防御 ─────────────────────────────────────
 

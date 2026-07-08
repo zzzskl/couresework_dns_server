@@ -18,13 +18,17 @@ Query Stack 是一个有状态的复合对象：
     READY → SENT → await transport.query() →
         NS+胶水 → READY（自旋，控制权不离开 Query）
         其他   → FINISHED（交权给 Task）
+
+分层归属:
+    Layer 3 — 具体栈状态机
+    - 继承 StackBase[QueryFrame]（Layer 1 栈原语）
+    - 继承 StateMachineBase[QueryStatus]（Layer 1 状态机原语）
+
 """
 
 from __future__ import annotations
 
-import logging
-
-from dns_common import QTYPE_REVERSE
+from dns_iterative.engine_infra import StackBase, StateMachineBase
 from dns_iterative.models import QueryResult, QueryStatus
 from dns_transport import (
     DnsMessage,
@@ -33,10 +37,8 @@ from dns_transport import (
     TransportError,
 )
 
-log = logging.getLogger(__name__)
 
-
-class QueryStack:
+class QueryStack(StackBase[QueryFrame], StateMachineBase[QueryStatus]):
     """
     单槽查询栈，自带状态机运行循环。
 
@@ -45,10 +47,10 @@ class QueryStack:
     """
 
     def __init__(self, transport: Transport):
+        """初始化单槽查询栈。"""
+        StackBase.__init__(self, max_depth=1)
+        StateMachineBase.__init__(self)
         self._transport = transport
-
-        # 单槽：当前待发送/已发送的查询帧
-        self._frame: QueryFrame | None = None
 
         # 目标服务器列表及当前尝试索引（用于超时重试）
         self._targets: list[str] = []
@@ -57,8 +59,8 @@ class QueryStack:
         # 结果
         self._result_data: QueryResult | None = None
 
-        # 状态
-        self._status: QueryStatus = QueryStatus.FINISHED
+        # 初始状态
+        self._set_status(QueryStatus.FINISHED)
 
     # ── 外部接口 ──────────────────────────────────────────
 
@@ -72,11 +74,13 @@ class QueryStack:
             targets: 可用的目标服务器 IP 列表（用于超时重试）。
                      不传则仅用 frame.target_ip。
         """
-        self._frame = frame
+        if not self._is_empty():
+            self._pop()                               # 清空旧帧（单槽替换）
+        self._push(frame)                              # ← 栈操作
         self._targets = targets or [frame.target_ip]
         self._target_idx = 0
         self._result_data = None
-        self._status = QueryStatus.READY
+        self._set_status(QueryStatus.READY)            # ← 守卫初始设定（无前驱约束）
 
     async def run(self) -> None:
         """
@@ -92,43 +96,33 @@ class QueryStack:
                 └─ 失败 → 切换目标重试 / 耗尽 → FINISHED
         """
         while self._status == QueryStatus.READY:
-            self._status = QueryStatus.SENT
+            self._transition(QueryStatus.SENT, QueryStatus.READY)
 
-            target_ip = self._frame.target_ip
-            qtype_name = QTYPE_REVERSE.get(self._frame.qtype, str(self._frame.qtype))
-            log.info("→ %s %s %s", target_ip, qtype_name, self._frame.domain)
+            target_ip = self._peek().target_ip
 
             try:
-                response = await self._transport.query(self._frame)
+                response = await self._transport.query(self._peek())
             except TransportError as exc:
                 # 当前目标失败，尝试下一个
                 if self._switch_target():
-                    log.warning(
-                        "← Error from %s: %s → retry %s",
-                        target_ip, exc, self._frame.target_ip,
-                    )
-                    self._status = QueryStatus.READY
+                    self._transition(QueryStatus.READY, QueryStatus.SENT)
                     continue
                 # 所有目标均失败
-                log.error(
-                    "← All %d targets exhausted for %s",
-                    len(self._targets), self._frame.domain,
-                )
                 self._result_data = QueryResult(error="所有目标服务器均无响应")
-                self._status = QueryStatus.FINISHED
+                self._transition(QueryStatus.FINISHED, QueryStatus.SENT)
                 continue
 
             # 检查是否 NS + 胶水（自旋条件）
             if self._has_ns_glue(response):
-                self._frame = self._build_glue_frame(response)
-                log.info("← NS+glue from %s → spin to %s", target_ip, self._frame.target_ip)
-                self._status = QueryStatus.READY
+                new_frame = self._build_glue_frame(response)
+                self._pop()
+                self._push(new_frame)
+                self._transition(QueryStatus.READY, QueryStatus.SENT)
                 continue
 
             # 非自旋结果：存入 resultData，结束
-            log.info("← Answer from %s (%d records)", target_ip, len(response.answers))
             self._result_data = QueryResult(response=response)
-            self._status = QueryStatus.FINISHED
+            self._transition(QueryStatus.FINISHED, QueryStatus.SENT)
 
     def consume_result(self) -> QueryResult | None:
         """
@@ -145,9 +139,9 @@ class QueryStack:
         self._target_idx += 1
         if self._target_idx < len(self._targets):
             new_ip = self._targets[self._target_idx]
-            self._frame = QueryFrame(
-                new_ip, self._frame.domain, self._frame.qtype,
-            )
+            frame = self._peek()
+            self._pop()
+            self._push(QueryFrame(new_ip, frame.domain, frame.qtype))
             return True
         return False
 
@@ -184,12 +178,13 @@ class QueryStack:
         ns_targets = {
             rec.rdata for rec in response.authorities if rec.type == 2
         }
+        current = self._peek()
         for rec in response.additionals:
             if rec.type in (1, 28) and rec.name in ns_targets:
                 return QueryFrame(
                     rec.rdata,
-                    self._frame.domain,
-                    self._frame.qtype,
+                    current.domain,
+                    current.qtype,
                 )
         raise AssertionError(
             f"_has_ns_glue 返回 True 但未在附加段找到匹配的胶水 A/AAAA 记录"
