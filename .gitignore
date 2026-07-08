@@ -49,4 +49,5 @@ coverage.xml
 
 # 环境变量与日志
 .env
+logs/
 *.log

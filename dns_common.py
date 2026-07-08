@@ -131,3 +131,10 @@ def build_query(domain: str, qtype: str = "A") -> bytes:
     # Question: 域名 + QTYPE + QCLASS(IN=1)
     question = encode_domain(domain) + struct.pack('!HH', qtype_code, 1)
     return header + question
+
+
+# ══════════════════════════════════════════════════════════════════
+# 日志工具（从独立模块导出，方便各模块调用）
+# ══════════════════════════════════════════════════════════════════
+
+from logger import setup_logger  # noqa: F401

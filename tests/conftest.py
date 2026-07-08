@@ -31,7 +31,7 @@ def mock_transport() -> MockTransport:
 def sample_a_response() -> DnsMessage:
     """一个简单的 A 记录响应。"""
     return make_dns_message(
-        answers=[DnsResourceRecord.create_a("www.example.com", "93.184.216.34")],
+        answers=[DnsResourceRecord.create_a("www.baidu.com", "93.184.216.34")],
     )
 
 
@@ -39,7 +39,7 @@ def sample_a_response() -> DnsMessage:
 def sample_cname_response() -> DnsMessage:
     """一个 CNAME 响应。"""
     return make_dns_message(
-        answers=[DnsResourceRecord.create_cname("www.example.com", "target.example.com")],
+        answers=[DnsResourceRecord.create_cname("www.baidu.com", "target.baidu.com")],
     )
 
 
@@ -47,8 +47,8 @@ def sample_cname_response() -> DnsMessage:
 def sample_ns_glue_response() -> DnsMessage:
     """一个 NS + 胶水响应（权威段有 NS，附加段有对应的 A 胶水）。"""
     return make_dns_message(
-        authorities=[DnsResourceRecord.create_ns("example.com", "ns1.example.com")],
-        additionals=[DnsResourceRecord.create_a("ns1.example.com", "1.2.3.4")],
+        authorities=[DnsResourceRecord.create_ns("baidu.com", "ns1.baidu.com")],
+        additionals=[DnsResourceRecord.create_a("ns1.baidu.com", "1.2.3.4")],
     )
 
 
@@ -56,7 +56,7 @@ def sample_ns_glue_response() -> DnsMessage:
 def sample_ns_no_glue_response() -> DnsMessage:
     """一个 NS 无胶水响应（权威段有 NS，附加段无匹配 A 记录）。"""
     return make_dns_message(
-        authorities=[DnsResourceRecord.create_ns("example.com", "ns1.example.com")],
+        authorities=[DnsResourceRecord.create_ns("baidu.com", "ns1.baidu.com")],
     )
 
 

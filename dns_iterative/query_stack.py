@@ -22,6 +22,9 @@ Query Stack 是一个有状态的复合对象：
 
 from __future__ import annotations
 
+import logging
+
+from dns_common import QTYPE_REVERSE
 from dns_iterative.models import QueryResult, QueryStatus
 from dns_transport import (
     DnsMessage,
@@ -29,6 +32,8 @@ from dns_transport import (
     Transport,
     TransportError,
 )
+
+log = logging.getLogger(__name__)
 
 
 class QueryStack:
@@ -89,14 +94,26 @@ class QueryStack:
         while self._status == QueryStatus.READY:
             self._status = QueryStatus.SENT
 
+            target_ip = self._frame.target_ip
+            qtype_name = QTYPE_REVERSE.get(self._frame.qtype, str(self._frame.qtype))
+            log.info("→ %s %s %s", target_ip, qtype_name, self._frame.domain)
+
             try:
                 response = await self._transport.query(self._frame)
-            except TransportError:
+            except TransportError as exc:
                 # 当前目标失败，尝试下一个
                 if self._switch_target():
+                    log.warning(
+                        "← Error from %s: %s → retry %s",
+                        target_ip, exc, self._frame.target_ip,
+                    )
                     self._status = QueryStatus.READY
                     continue
                 # 所有目标均失败
+                log.error(
+                    "← All %d targets exhausted for %s",
+                    len(self._targets), self._frame.domain,
+                )
                 self._result_data = QueryResult(error="所有目标服务器均无响应")
                 self._status = QueryStatus.FINISHED
                 continue
@@ -104,10 +121,12 @@ class QueryStack:
             # 检查是否 NS + 胶水（自旋条件）
             if self._has_ns_glue(response):
                 self._frame = self._build_glue_frame(response)
+                log.info("← NS+glue from %s → spin to %s", target_ip, self._frame.target_ip)
                 self._status = QueryStatus.READY
                 continue
 
             # 非自旋结果：存入 resultData，结束
+            log.info("← Answer from %s (%d records)", target_ip, len(response.answers))
             self._result_data = QueryResult(response=response)
             self._status = QueryStatus.FINISHED
 
