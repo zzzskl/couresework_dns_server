@@ -16,6 +16,8 @@ DNS 协议栈统一测试套件（24 个测试）。
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import socket
 import time
 from pathlib import Path
 
@@ -249,6 +251,41 @@ def test_mock_transport(mock_transport, sample_a):
 
 
 # ══════════════════════════════════════════════════════════════
+# 6b. IPv4/IPv6 地址族检测（AsyncUdpTransport 内部逻辑）
+# ══════════════════════════════════════════════════════════════
+
+
+def _detect_family_and_addr(ip: str, port: int = 53):
+    """模拟 AsyncUdpTransport.query() 中的地址族判断逻辑。"""
+    try:
+        ipaddress.IPv4Address(ip)
+        return socket.AF_INET, (ip, port)
+    except ipaddress.AddressValueError:
+        return socket.AF_INET6, (ip, port, 0, 0)
+
+
+def test_transport_detect_family_ipv4():
+    """IPv4 地址返回 AF_INET 和标准地址元组。"""
+    family, addr = _detect_family_and_addr("8.8.8.8")
+    assert family == socket.AF_INET
+    assert addr == ("8.8.8.8", 53)
+
+
+def test_transport_detect_family_ipv6():
+    """IPv6 地址返回 AF_INET6 和含 flowinfo/scope_id 的地址元组。"""
+    family, addr = _detect_family_and_addr("2001:db8::1")
+    assert family == socket.AF_INET6
+    assert addr == ("2001:db8::1", 53, 0, 0)
+
+
+def test_transport_detect_family_loopback_ipv6():
+    """IPv6 回环地址 ::1 正确识别。"""
+    family, addr = _detect_family_and_addr("::1")
+    assert family == socket.AF_INET6
+    assert addr == ("::1", 53, 0, 0)
+
+
+# ══════════════════════════════════════════════════════════════
 # 7. QueryStack — 状态机
 # ══════════════════════════════════════════════════════════════
 
@@ -329,6 +366,40 @@ def test_task_stack_cname_chain(mock_transport, sample_cname):
     assert ts._result_data.response is a_resp
 
 
+def test_task_stack_nxdomain(mock_transport):
+    """NXDOMAIN rcode=3 应透传而非视为错误。"""
+    soa_rdata = {
+        'mname': 'ns1.example.com',
+        'rname': 'admin.example.com',
+        'serial': 2026000001,
+        'refresh': 3600,
+        'retry': 900,
+        'expire': 86400,
+        'minimum': 60,
+    }
+    nxdomain_resp = DnsMessage(
+        header=DnsHeader(rcode=3), questions=[],
+        authorities=[DnsResourceRecord(
+            name='example.com', rr_type=6, type_str='SOA',
+            rr_class=1, class_str='IN', ttl=60, rdata=soa_rdata,
+        )],
+    )
+    mock_transport.add_response(nxdomain_resp)
+
+    qs = QueryStack(mock_transport)
+    ts = TaskStack()
+    ts._query_stack = qs
+    ts._initial_targets = ["8.8.8.8"]
+    ts.push("nonexistent.example.com")
+    asyncio.run(ts.run())
+
+    assert ts._result_data is not None
+    assert ts._result_data.response is nxdomain_resp
+    assert ts._result_data.response.header.rcode == 3
+    assert ts._result_data.error is None  # 不应是错误，应透传响应
+    assert ts._result_data.answer_ip is None
+
+
 def test_task_stack_paused_recovery(mock_transport, sample_ns_no_glue):
     """NS 无胶水→子任务解析 NS IP→恢复原查询。"""
     ns_ip = DnsMessage(
@@ -402,3 +473,48 @@ def test_engine_delegation_cache(mock_transport):
     result = asyncio.run(engine.resolve("www.example.com"))
     assert result is not None
     assert mock_transport.call_history[0].target_ip == "1.2.3.4"
+
+
+def test_engine_missing_glue_aaaa(mock_transport):
+    """缺胶水 → PAUSED → 子任务解析 NS IP → 恢复 AAAA 查询。"""
+    # 1. NS delegation without glue
+    ns_no_glue = DnsMessage(
+        header=DnsHeader(), questions=[],
+        authorities=[DnsResourceRecord.create_ns("example.com", "ns1.example.com")],
+    )
+    # 2. A record for the NS server (sub-task resolution)
+    ns_ip = DnsMessage(
+        header=DnsHeader(), questions=[],
+        answers=[DnsResourceRecord.create_a("ns1.example.com", "1.2.3.4")],
+    )
+    # 3. Final AAAA answer
+    final_aaaa = DnsMessage(
+        header=DnsHeader(), questions=[],
+        answers=[DnsResourceRecord.create_aaaa("www.example.com", "2001:db8::1")],
+    )
+    mock_transport.add_response(ns_no_glue)
+    mock_transport.add_response(ns_ip)
+    mock_transport.add_response(final_aaaa)
+
+    engine = ResolutionEngine(mock_transport)
+    result = asyncio.run(engine.resolve("www.example.com", 28))
+
+    # Final answer has AAAA record
+    assert result is not None
+    assert result.answers[0].rdata == "2001:db8::1"
+    assert result.answers[0].rr_type == 28
+
+    # Query sequence verification:
+    # [0] Query to root server for www.example.com AAAA
+    assert mock_transport.call_history[0].domain == "www.example.com"
+    assert mock_transport.call_history[0].qtype == 28
+    assert mock_transport.call_history[0].target_ip in (
+        "198.41.0.4", "199.9.14.201", "192.33.4.12",
+    )
+    # [1] Sub-task: query to root server for ns1.example.com A
+    assert mock_transport.call_history[1].domain == "ns1.example.com"
+    assert mock_transport.call_history[1].qtype == 1
+    # [2] Resume original query to resolved NS IP for AAAA
+    assert mock_transport.call_history[2].domain == "www.example.com"
+    assert mock_transport.call_history[2].qtype == 28
+    assert mock_transport.call_history[2].target_ip == "1.2.3.4"

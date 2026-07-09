@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import ipaddress
 import logging
 import os
 import socket
@@ -184,15 +185,22 @@ class AsyncUdpTransport(Transport):
         # 3. 序列化
         query_bytes = query_msg.to_bytes()
 
-        # 4. 创建非阻塞 UDP socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # 4. 根据目标 IP 判断地址族并创建非阻塞 UDP socket
+        try:
+            ipaddress.IPv4Address(frame.target_ip)
+            family = socket.AF_INET
+            addr_tuple = (frame.target_ip, self.port)
+        except ipaddress.AddressValueError:
+            family = socket.AF_INET6
+            addr_tuple = (frame.target_ip, self.port, 0, 0)
+        sock = socket.socket(family, socket.SOCK_DGRAM)
         sock.setblocking(False)
         loop = asyncio.get_event_loop()
 
         try:
             # 5. 发送
             await loop.sock_sendto(
-                sock, query_bytes, (frame.target_ip, self.port)
+                sock, query_bytes, addr_tuple
             )
 
             # 6. 接收（带超时）

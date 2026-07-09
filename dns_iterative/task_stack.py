@@ -103,14 +103,19 @@ class TaskStack(StackBase[Task]):
                     continue
                 response = qresult.response
 
-                if self._has_answer(response):
+                # 上游返回非零 rcode（NXDOMAIN/SERVFAIL 等），透传原始响应及其 rcode
+                if response.header.rcode != 0:
+                    self._result_data = TaskResult(response=response, answer_ip=None)
+                    transition_status(task, TaskStatus.FINISHED, TaskStatus.PENDING)
+
+                elif self._has_answer(response):
                     self._handle_answer(response, task)
                 elif self._has_cname(response):
                     self._handle_cname(response, task)
                 elif self._has_referral(response):
                     self._handle_referral(response, task)
                 else:
-                    # 无法识别的响应（NXDOMAIN、SERVFAIL 等）
+                    # 无法识别的响应类型（rcode=0 但无答案/CNAME/推荐）
                     self._result_data = TaskResult(error="无法识别的 DNS 响应类型")
                     transition_status(task, TaskStatus.FINISHED, TaskStatus.PENDING)
 
