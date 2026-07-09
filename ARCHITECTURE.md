@@ -7,7 +7,7 @@
 ### 分层架构
 
 ```
-  Layer 4  服务器入口          dns_server.py
+  Layer 4  服务器/客户端入口   dns_server.py, dns_client.py
   Layer 3  解析编排            dns_orchestrator.py
   Layer 2  缓存 & 引擎         dns_cache.py, dns_database.py, dns_iterative/
   Layer 1  传输 & 编解码       dns_transport.py, dns_coder.py, dns_decoder.py
@@ -17,7 +17,7 @@
 ### 依赖关系图
 
 ```
-  nslookup / dig (客户端)
+  dns_client.py / dig / nslookup (客户端)
           │ UDP :5354
           ▼
   ┌─────────────────┐
@@ -398,7 +398,32 @@ OUTPUT_FILE = "server/captured.hex"
 
 ---
 
-### 11. `logger.py` — 统一日志
+### 11. `dns_client.py` — 同步 UDP DNS 客户端（演示用）
+
+用于演示的同步 DNS 客户端，默认连接 `127.0.0.1:5354`。
+
+```bash
+# 直接运行（查询默认域名 www.baidu.com）
+python dns_client.py
+```
+
+**可配置常量（文件顶部）：**
+
+| 常量 | 默认值 | 说明 |
+|------|--------|------|
+| `TARGET_SERVER` | `127.0.0.1` | 目标 DNS 服务器 |
+| `TARGET_PORT` | `5354` | 端口 |
+| `QUERY_DOMAIN` | `www.baidu.com` | 查询域名 |
+| `QUERY_TYPE` | `A` | 记录类型 |
+| `TIMEOUT` | `10` | 超时秒数 |
+| `PRINT_RAW_HEX` | `True` | 是否打印 hex 全文 |
+
+> 此模块标记为 LEGACY，新代码推荐使用 `dns_transport.AsyncUdpTransport`。
+> 演示场景下 `dns_client.py` 是最便捷的跨平台工具，无需安装额外依赖。
+
+---
+
+### 12. `logger.py` — 统一日志
 
 提供请求上下文追踪，所有模块的日志行自动携带 `[req=xxx] [domain] [qtype]`。
 
@@ -427,7 +452,7 @@ log.info("Query starting")  # 自动输出: [req=a1b2c3d4] [www.baidu.com] [qtyp
 
 ---
 
-### 12. 测试模块 (`tests/`)
+### 13. 测试模块 (`tests/`)
 
 | 文件 | 说明 |
 |------|------|
@@ -454,9 +479,12 @@ pip install -r requirements.txt
 # 2. 启动服务器
 python dns_server.py
 
-# 3. 新终端：查询
-nslookup www.baidu.com 127.0.0.1 -port=5354
+# 3. 新终端（演示一）：用项目自带客户端查询
+python dns_client.py
 
-# 4. 运行测试
+# 4. 新终端（演示二）：或用 dig 查询
+# dig @127.0.0.1 -p 5354 www.baidu.com
+
+# 5. 运行测试
 pytest tests/ -v
 ```
