@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import logging
 import os
 import socket
 import struct
@@ -34,6 +35,8 @@ from dataclasses import dataclass
 from dns_common import QTYPE_REVERSE
 from dns_decoder import decode
 from dns_types import DnsMessage
+
+log = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -199,6 +202,10 @@ class AsyncUdpTransport(Transport):
                     timeout=self.timeout,
                 )
             except asyncio.TimeoutError:
+                log.warning(
+                    "UDP TIMEOUT %.1fs: %s \u2192 %s:%d",
+                    self.timeout, frame.domain, frame.target_ip, self.port,
+                )
                 raise TransportTimeoutError(
                     f"查询超时 ({self.timeout}s): "
                     f"{frame.domain} → {frame.target_ip}:{self.port}"
@@ -212,6 +219,12 @@ class AsyncUdpTransport(Transport):
             # 7. 验证 TxID
             response_tx_id = struct.unpack('!H', response_bytes[:2])[0]
             if response_tx_id != tx_id:
+                log.warning(
+                    "UDP TxID mismatch: sent=%#06x recv=%#06x, "
+                    "%s \u2192 %s:%d",
+                    tx_id, response_tx_id,
+                    frame.domain, frame.target_ip, self.port,
+                )
                 raise TransportBadResponseError(
                     f"TxID 不匹配: 发送 {tx_id:#06x}, "
                     f"收到 {response_tx_id:#06x}"
@@ -229,6 +242,10 @@ class AsyncUdpTransport(Transport):
         except TransportError:
             raise
         except OSError as e:
+            log.warning(
+                "UDP NETWORK ERROR: %s \u2192 %s:%d: %s",
+                frame.domain, frame.target_ip, self.port, e,
+            )
             raise TransportNetworkError(
                 f"网络错误 ({e}): "
                 f"{frame.domain} → {frame.target_ip}:{self.port}"

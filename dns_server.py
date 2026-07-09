@@ -15,6 +15,9 @@ DNS 服务器 — 基于 asyncio 的 UDP DNS 服务器。
     3. create_response() 修正 TxID 为客户端原始值
     4. to_bytes() 编码回二进制 → 发送
 
+日志通过 logger.set_request_context() 注入 [req=xxx] [domain] [qtype]，
+所有模块的日志自动携带请求上下文，可通过 `grep req=xxx` 还原请求链路。
+
 用法: 直接运行
 """
 
@@ -28,6 +31,8 @@ import asyncio
 import logging
 import os
 import socket
+import time
+import uuid
 
 from dns_cache import DnsCache
 from dns_database import DnsDatabase
@@ -36,8 +41,27 @@ from dns_iterative.engine import ResolutionEngine
 from dns_orchestrator import DnsOrchestrator
 from dns_transport import AsyncUdpTransport
 from dns_types import DnsMessage
+from logger import (
+    clear_request_context,
+    set_request_context,
+    setup_logger,
+)
 
 log = logging.getLogger(__name__)
+
+# ── 启动时一次性日志 ─────────────────────────────
+_log_started = False
+
+
+def _log_startup(database_path: str) -> None:
+    """记录服务器启动信息（仅在首次调用时输出一次）。"""
+    global _log_started
+    if _log_started:
+        return
+    log.info("DNS server starting on %s:%d", LISTEN_IP, LISTEN_PORT)
+    log.info("Resolution pipeline: Cache → Database → Engine (iterative)")
+    log.info("Database: %s", database_path)
+    _log_started = True
 
 
 def _build_response(query: DnsMessage, result: DnsMessage) -> DnsMessage:
@@ -60,7 +84,10 @@ def _build_response(query: DnsMessage, result: DnsMessage) -> DnsMessage:
 
 async def main():
     """启动 DNS 服务器。"""
-    # ── 初始化各层 ──────────────────────────────────────────────
+    # ── 初始化日志（入口处仅调用一次） ────────────────
+    setup_logger(level=logging.INFO)
+
+    # ── 初始化各层 ──────────────────────────────────────
     cache = DnsCache()
     database = DnsDatabase()
     transport = AsyncUdpTransport()
@@ -71,26 +98,21 @@ async def main():
         engine=engine,
     )
 
-    # ── 创建非阻塞 UDP Socket ──────────────────────────────────
+    # ── 创建非阻塞 UDP Socket ──────────────────────────
     loop = asyncio.get_event_loop()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setblocking(False)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((LISTEN_IP, LISTEN_PORT))
 
-    print(f"[*] DNS 服务器已启动，监听 {LISTEN_IP}:{LISTEN_PORT}")
-    print(f"[*] 解析流程: Cache → Database → Engine (iterative)")
-    print(f"[*] 数据库: {database.path}")
-    print("[*] 等待客户端请求... (按 Ctrl+C 退出)\n")
+    _log_startup(database.path)
 
     try:
         while True:
-            # ── 接收 ──────────────────────────────────────────
+            # ── 接收 ──────────────────────────────────
             data, addr = await loop.sock_recvfrom(sock, 4096)
-            print(f"[>] 收到来自 {addr[0]}:{addr[1]} 的请求，"
-                  f"大小: {len(data)} 字节")
 
-            # ── 保存原始 hex（抓包） ─────────────────────────
+            # ── 保存原始 hex（抓包） ─────────────────
             hex_str = ' '.join(f'{b:02x}' for b in data)
             out_dir = os.path.dirname(OUTPUT_FILE)
             if out_dir:
@@ -98,52 +120,80 @@ async def main():
             with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
                 f.write(hex_str)
 
-            # ── 解析并处理 ────────────────────────────────────
+            # ── 每个请求的独立上下文 ──────────────────
+            request_id = uuid.uuid4().hex[:8]
+            t0 = time.monotonic()
+            set_request_context(request_id, "-", "-")
+
             try:
+                log.info(
+                    "RECV from %s:%d, %d bytes",
+                    addr[0], addr[1], len(data),
+                )
+
                 query = decode(data)
 
-                # 空 questions 节 → 返回 FORMERR（不访问 questions[0]）
+                # 空 questions 节 → 返回 FORMERR
                 if not query.questions:
-                    print(f"    Warning: empty questions section")
-                    response = DnsMessage.create_response(query, rcode=1)  # FORMERR
+                    log.warning(
+                        "Empty questions section → FORMERR",
+                    )
+                    response = DnsMessage.create_response(query, rcode=1)
                     response_bytes = response.to_bytes()
                     await loop.sock_sendto(sock, response_bytes, addr)
-                    print(f"[<] 已返回 FORMERR ({len(response_bytes)} 字节)")
+                    elapsed = time.monotonic() - t0
+                    log.info(
+                        "SEND %d bytes, rcode=1 (FORMERR), "
+                        "elapsed=%.2fs",
+                        len(response_bytes), elapsed,
+                    )
                 else:
                     domain = query.questions[0].qname
                     qtype = query.questions[0].qtype
-                    print(f"    Query: {domain} (type={qtype})")
+
+                    # 设置请求上下文（后续所有模块的日志自动带上）
+                    set_request_context(request_id, domain, qtype)
+
+                    log.info("QUERY %s qtype=%d", domain, qtype)
 
                     result = await orchestrator.resolve(domain, qtype)
 
                     if result is not None:
                         response = _build_response(query, result)
                         n_answers = len(result.answers)
+                        rcode = result.header.rcode
                     else:
-                        # 解析失败：返回 SERVFAIL
                         response = DnsMessage.create_response(
                             query,
                             rcode=2,  # SERVFAIL
                         )
                         n_answers = 0
+                        rcode = 2
 
                     response_bytes = response.to_bytes()
                     await loop.sock_sendto(sock, response_bytes, addr)
-                    print(f"[<] 已返回 DNS 响应 ({len(response_bytes)} 字节, "
-                          f"{n_answers} 条 Answer)")
+
+                    elapsed = time.monotonic() - t0
+                    log.info(
+                        "SEND %d bytes, %d answers, rcode=%d, "
+                        "elapsed=%.2fs",
+                        len(response_bytes), n_answers, rcode, elapsed,
+                    )
 
             except Exception as e:
-                # 解码/处理失败时回显原始数据（至少让客户端不超时）
+                log.exception(
+                    "Request handling failed: %s", e,
+                )
+                # 回显原始数据（至少让客户端不超时）
                 try:
                     await loop.sock_sendto(sock, data, addr)
                 except Exception:
                     pass
-                print(f"[!] 处理失败 ({e})，已回显原始数据")
-
-            print("[*] 继续等待下一个请求...\n")
+            finally:
+                clear_request_context()
 
     except KeyboardInterrupt:
-        print("\n[*] 用户中断，服务器已关闭")
+        log.info("DNS server stopped (interrupted)")
     finally:
         sock.close()
         database.close()
