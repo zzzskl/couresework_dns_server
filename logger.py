@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 from contextvars import ContextVar
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -42,6 +43,7 @@ _FORMAT = (
 _DATE_FMT = "%Y-%m-%d %H:%M:%S"
 
 _initialized = False
+_init_lock = threading.Lock()
 
 # ══════════════════════════════════════════════════════════════════
 # 请求上下文（通过 contextvars 跨 await 自动传播）
@@ -67,6 +69,11 @@ def set_request_context(request_id: str, domain: str, qtype: int | str) -> None:
 def clear_request_context() -> None:
     """清除当前请求上下文。"""
     _request_ctx.set({})
+
+
+def is_request_context_set() -> bool:
+    """检查当前协程/线程是否已有请求上下文。"""
+    return bool(_request_ctx.get())
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -113,8 +120,10 @@ def setup_logger(
         backup_count: 保留的历史文件数（默认 5）
     """
     global _initialized
-    if _initialized:
-        return
+    with _init_lock:
+        if _initialized:
+            return
+        _initialized = True
 
     root = logging.getLogger()
     root.setLevel(level)
@@ -144,4 +153,3 @@ def setup_logger(
         ch.addFilter(ctx_filter)
         root.addHandler(ch)
 
-    _initialized = True

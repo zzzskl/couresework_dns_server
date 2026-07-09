@@ -33,6 +33,7 @@ from typing import Optional
 from dns_common import (
     extract_ns_delegations,
     min_ttl_from_message,
+    min_ttl_from_soa_negative,
 )
 from dns_cache import DnsCache
 from dns_iterative.consts import ROOT_SERVERS
@@ -40,6 +41,7 @@ from dns_iterative.models import TaskResult
 from dns_iterative.query_stack import QueryStack
 from dns_iterative.task_stack import TaskStack
 from dns_transport import DnsMessage, Transport
+from logger import set_request_context
 
 log = logging.getLogger(__name__)
 
@@ -96,8 +98,8 @@ class ResolutionEngine:
                         (r.rdata for r in msg.answers if r.rr_type in (1, 28)),
                         None,
                     )
-                    ts._result_data = TaskResult(response=msg, answer_ip=answer_ip)
-                    log.info("Cache HIT for %s", domain)
+                    ts._set_result(TaskResult(response=msg, answer_ip=answer_ip))
+                    log.info("Cache HIT for %s (rcode=%d)", domain, msg.header.rcode)
                     return  # 不压栈，不再将控制权返回栈的 push 流程
             log.info("Queue task: %s", domain)
             original_push(domain, qtype=qtype)
@@ -164,15 +166,6 @@ class ResolutionEngine:
     # 缓存操作
     # ══════════════════════════════════════════════════════════════
 
-    def _cache_lookup(self, domain: str, qtype: int) -> Optional[DnsMessage]:
-        """同步缓存查询（跳过已过期条目）。"""
-        if self._cache is None:
-            return None
-        entry = self._cache.get(domain, qtype, 1)
-        if entry is None or entry.is_expired:
-            return None
-        return entry.to_message()
-
     def _resolve_initial_targets(self, domain: str) -> Optional[list[str]]:
         """
         从委派缓存查找初始目标 IP。
@@ -223,6 +216,13 @@ class ResolutionEngine:
             成功时返回 DNS 响应报文（DnsMessage）；
             失败时返回 None。
         """
+        # ── 设置请求上下文（如尚未设置） ────────────────────
+        # server 端在 handle_request 中已设置，此处仅补全 engine 独立使用场景
+        import uuid
+        from logger import is_request_context_set
+        if not is_request_context_set():
+            set_request_context(uuid.uuid4().hex[:8], domain, qtype)
+
         # ── ① Answer Cache ────────────────────────────────────
         if self._cache is not None:
             cached = self._cache.get_answer(domain, qtype)
@@ -256,13 +256,27 @@ class ResolutionEngine:
 
         # ── ⑦ 写缓存 ─────────────────────────────────────────
         if self._cache is not None and result is not None:
-            ttl = min_ttl_from_message(result)
-            self._cache.set_answer(domain, qtype, 1, result, ttl=ttl)
-            delegations = extract_ns_delegations(result)
-            for ns_domain, (ns_records, glue_records) in delegations.items():
-                self._cache.set_delegation(
-                    ns_domain, ns_records, glue_records,
+            is_negative = result.header.rcode != 0
+            if is_negative:
+                # 负缓存（NXDOMAIN/SERVFAIL）：用 SOA MINIMUM (RFC 2308)
+                ttl = min_ttl_from_soa_negative(result)
+                log.info(
+                    "Negative cache set: %s (rcode=%d, ttl=%d)",
+                    domain, result.header.rcode, ttl,
                 )
+            else:
+                ttl = min_ttl_from_message(result)
+            self._cache.set_answer(
+                domain, qtype, 1, result,
+                ttl=ttl, is_negative=is_negative,
+            )
+            # 仅非负响应才缓存委派（NXDOMAIN 的 Authority 可能含 SOA 非 NS）
+            if not is_negative:
+                delegations = extract_ns_delegations(result)
+                for ns_domain, (ns_records, glue_records) in delegations.items():
+                    self._cache.set_delegation(
+                        ns_domain, ns_records, glue_records,
+                    )
 
         # ── ⑧ 返回 ───────────────────────────────────────────
         return result

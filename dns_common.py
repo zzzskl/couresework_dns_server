@@ -195,6 +195,33 @@ def min_ttl_from_message(msg: DnsMessage) -> int:
     return min(rr.ttl for rr in all_rrs)
 
 
+def min_ttl_from_soa_negative(msg: DnsMessage) -> int:
+    """
+    从 NXDOMAIN 响应的 SOA 记录提取负缓存 TTL（RFC 2308）。
+
+    NXDOMAIN 响应通常在 Authority 段携带 SOA 记录。
+    负缓存 TTL = min(SOA.TTL, SOA.MINIMUM)。
+    无 SOA 记录时返回 60（安全默认值）。
+
+    Args:
+        msg: NXDOMAIN 或其他负响应报文。
+
+    Returns:
+        负缓存 TTL（秒）。
+    """
+    for rr in msg.authorities:
+        if rr.rr_type == 6:  # SOA
+            soa_ttl = rr.ttl
+            if isinstance(rr.rdata, dict):
+                soa_minimum = rr.rdata.get('minimum', 60)
+            elif hasattr(rr.rdata, 'minimum'):
+                soa_minimum = rr.rdata.minimum
+            else:
+                soa_minimum = 60
+            return min(soa_ttl, soa_minimum)
+    return 60
+
+
 def extract_ns_delegations(
     msg: DnsMessage,
 ) -> Dict[str, Tuple[List[DnsResourceRecord], List[DnsResourceRecord]]]:

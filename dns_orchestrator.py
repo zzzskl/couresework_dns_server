@@ -123,7 +123,10 @@ class DnsOrchestrator:
         result = await self._engine.resolve(domain, qtype)
 
         if result is not None:
-            self._database.set_answer(domain, qtype, 1, result)
+            self._database.set_answer(
+                domain, qtype, 1, result,
+                is_negative=(result.header.rcode != 0),
+            )
             # 内存缓存已由 engine 内部写入（共享同一 cache 实例）
             log.info(
                 "Resolved %s -> %d answers, written to DB",

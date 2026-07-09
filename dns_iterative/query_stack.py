@@ -28,6 +28,8 @@ Query Stack 是一个有状态的复合对象：
 
 from __future__ import annotations
 
+import logging
+
 from dns_common import extract_ns_glue_pairs
 from dns_iterative.engine_infra import StackBase, StateMachineBase
 from dns_iterative.models import QueryResult, QueryStatus
@@ -52,6 +54,7 @@ class QueryStack(StackBase[QueryFrame], StateMachineBase[QueryStatus]):
         StackBase.__init__(self, max_depth=1)
         StateMachineBase.__init__(self)
         self._transport = transport
+        self._log = logging.getLogger(__name__)
 
         # 目标服务器列表及当前尝试索引（用于超时重试）
         self._targets: list[str] = []
@@ -104,6 +107,10 @@ class QueryStack(StackBase[QueryFrame], StateMachineBase[QueryStatus]):
             try:
                 response = await self._transport.query(self._peek())
             except TransportError as exc:
+                self._log.warning(
+                    "Target %s failed for %s: %s",
+                    target_ip, self._peek().domain, exc,
+                )
                 # 当前目标失败，尝试下一个
                 if self._switch_target():
                     self._transition(QueryStatus.READY, QueryStatus.SENT)
@@ -142,7 +149,7 @@ class QueryStack(StackBase[QueryFrame], StateMachineBase[QueryStatus]):
             new_ip = self._targets[self._target_idx]
             frame = self._peek()
             self._pop()
-            self._push(QueryFrame(new_ip, frame.domain, frame.qtype))
+            self._push(QueryFrame(new_ip, frame.domain, frame.qtype, port=frame.port))
             return True
         return False
 
