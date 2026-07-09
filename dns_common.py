@@ -3,13 +3,19 @@
 
 """
 DNS 公共模块 — 提供 coder / decoder / client / resolver 共享的
-常量映射、域名编码/解码、查询报文构造等基础 API。
+常量映射、域名编码/解码、查询报文构造、TTL 工具、NS 委派提取等基础 API。
 
 所有模块统一从此文件导入，避免重复实现。
 """
 
+from __future__ import annotations
+
 import struct
-from typing import Any, Dict, List, Tuple
+from collections import defaultdict
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+
+if TYPE_CHECKING:
+    from dns_types import DnsMessage, DnsResourceRecord
 
 # ══════════════════════════════════════════════════════════════════
 # 类型/类/响应码 常量映射
@@ -169,3 +175,60 @@ def extract_ns_glue_pairs(
 
 
 # 各模块请直接从 logger 模块导入 setup_logger，保持职责单一
+
+
+# ══════════════════════════════════════════════════════════════════
+# TTL / 委派 工具函数
+# ══════════════════════════════════════════════════════════════════
+
+
+def min_ttl_from_message(msg: DnsMessage) -> int:
+    """
+    从 DNS 响应中取所有 RR 的最小 TTL。
+
+    如果没有记录（空响应），返回 60（安全默认值）。
+    负缓存（NXDOMAIN）的调用方应单独传入 SOA MINIMUM 或默认值。
+    """
+    all_rrs = msg.answers + msg.authorities + msg.additionals
+    if not all_rrs:
+        return 60
+    return min(rr.ttl for rr in all_rrs)
+
+
+def extract_ns_delegations(
+    msg: DnsMessage,
+) -> Dict[str, Tuple[List[DnsResourceRecord], List[DnsResourceRecord]]]:
+    """
+    从 DNS 响应中提取 NS 委派信息。
+
+    遍历 Authority 中的 NS 记录，通过 extract_ns_glue_pairs 匹配
+    Additional 中的 A/AAAA glue，返回 {domain_lower: (ns_records, glue_records)}。
+
+    Args:
+        msg: DNS 响应报文
+
+    Returns:
+        字典：域名小写 → (NS 记录列表, glue A/AAAA 记录列表)
+    """
+    # 按域名分组 Authority 中的 NS 记录
+    ns_map: Dict[str, List[DnsResourceRecord]] = defaultdict(list)
+    for rr in msg.authorities:
+        if rr.rr_type == 2:  # NS
+            ns_map[rr.name.lower()].append(rr)
+
+    if not ns_map:
+        return {}
+
+    # 使用共享工具函数获取 NS 目标 → glue 映射
+    glue_map = extract_ns_glue_pairs(msg.authorities, msg.additionals)
+
+    result: Dict[str, Tuple[List[DnsResourceRecord], List[DnsResourceRecord]]] = {}
+    for domain, nss in ns_map.items():
+        glue: List[DnsResourceRecord] = []
+        for ns_rr in nss:
+            ns_target = ns_rr.rdata.lower() if isinstance(ns_rr.rdata, str) else ''
+            if ns_target in glue_map:
+                glue.extend(glue_map[ns_target])
+        result[domain] = (nss, glue)
+
+    return result

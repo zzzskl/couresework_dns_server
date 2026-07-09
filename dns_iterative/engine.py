@@ -30,11 +30,11 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from dns_cache import (
-    DnsCache,
+from dns_common import (
     extract_ns_delegations,
     min_ttl_from_message,
 )
+from dns_cache import DnsCache
 from dns_iterative.consts import ROOT_SERVERS
 from dns_iterative.models import TaskResult
 from dns_iterative.query_stack import QueryStack

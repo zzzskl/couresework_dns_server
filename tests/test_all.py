@@ -25,7 +25,8 @@ from dns_common import encode_domain, decode_domain
 from dns_types import DnsMessage, DnsResourceRecord, DnsHeader
 from dns_decoder import decode
 from dns_coder import encode_message, encode_rdata
-from dns_cache import CacheEntry, DnsCache, extract_ns_delegations
+from dns_cache import CacheEntry, DnsCache
+from dns_common import extract_ns_delegations
 from dns_transport import (
     QueryFrame,
     TransportError,
