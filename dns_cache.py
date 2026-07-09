@@ -4,8 +4,10 @@
 """
 DNS 缓存层 — 答案缓存 + 负缓存 + 委派缓存。
 
-提供 CacheEntry 数据类和 DnsCache 容器，支持 TTL 过期、并发安全、
+提供 CacheEntry 数据类和 DnsCache 容器，支持 TTL 过期、
 负缓存（NXDOMAIN/SERVFAIL），以及从 DnsMessage 提取缓存数据的工具函数。
+
+注意：DnsCache 未实现锁机制，仅适用于单线程 asyncio 环境，不保证多线程并发安全。
 
 用法:
     cache = DnsCache()
@@ -19,6 +21,7 @@ DNS 缓存层 — 答案缓存 + 负缓存 + 委派缓存。
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -103,6 +106,25 @@ class CacheEntry:
         if ttl is None:
             ttl = min_ttl_from_message(msg)
 
+        if not msg.questions:
+            log = logging.getLogger(__name__)
+            log.warning(
+                "CacheEntry.from_message 收到空 questions 节，"
+                "无法提取缓存键; rcode=%d",
+                msg.header.rcode,
+            )
+            return cls(
+                domain='',
+                qtype=1,
+                qclass=1,
+                answers=list(msg.answers),
+                authorities=list(msg.authorities),
+                additionals=list(msg.additionals),
+                rcode=msg.header.rcode,
+                expires_at=time.time() + ttl,
+                is_negative=is_negative,
+            )
+
         # 从第一个 question 提取 key 信息
         domain = msg.questions[0].qname.lower() if msg.questions else ''
         qtype = msg.questions[0].qtype if msg.questions else 1
@@ -137,6 +159,8 @@ class DnsCache:
 
     支持 TTL 过期懒清理、负缓存。
     同一容器可同时用作 Answer Cache 和 Delegation Cache。
+
+    注意：未实现锁机制，不适用于多线程并发访问。
     """
 
     def __init__(self) -> None:

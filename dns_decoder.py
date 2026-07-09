@@ -142,7 +142,7 @@ def decode(data: bytes, include_raw_hex: bool = False) -> DnsMessage:
 
 
 # ══════════════════════════════════════════════════════════════════
-# CLI 配置与入口（模块级变量供测试 monkeypatch）
+# CLI 配置与入口（模块级变量作为默认值，可通过 main() 参数覆盖）
 # ══════════════════════════════════════════════════════════════════
 
 INPUT_MODE = "file"            # "file" 或 "stdin"
@@ -153,43 +153,57 @@ PRINT_RAW_HEX = True           # 输出中是否包含原始 Hex（CLI 模式）
 
 
 # ---------- 加载与输出 ----------
-def load_data() -> bytes:
-    if INPUT_MODE == "stdin":
+def load_data(
+    input_mode: str = INPUT_MODE,
+    input_file: str = INPUT_FILE,
+) -> bytes:
+    if input_mode == "stdin":
         print("[*] 请粘贴 Hex 文本（支持空格/换行），按 Ctrl+D 结束:")
         content = sys.stdin.read()
         return bytes.fromhex(''.join(content.split()))
-    elif INPUT_MODE == "file":
-        with open(INPUT_FILE, 'r', encoding='utf-8') as f:
+    elif input_mode == "file":
+        with open(input_file, 'r', encoding='utf-8') as f:
             content = f.read()
         return bytes.fromhex(''.join(content.split()))
     else:
         raise ValueError("INPUT_MODE 必须是 'file' 或 'stdin'")
 
-def output_result(result: Dict):
-    indent = 2 if PRINT_RAW_HEX else None
+def output_result(
+    result: Dict,
+    output_mode: str = OUTPUT_MODE,
+    output_json_file: str = OUTPUT_JSON_FILE,
+    print_raw_hex: bool = PRINT_RAW_HEX,
+):
+    indent = 2 if print_raw_hex else None
     json_str = json.dumps(result, indent=indent, ensure_ascii=False)
     
-    if OUTPUT_MODE in ("stdout", "both"):
+    if output_mode in ("stdout", "both"):
         print("\n" + "="*60)
         print("解析结果:")
         print("="*60)
         print(json_str)
-    if OUTPUT_MODE in ("file", "both"):
-        out_dir = os.path.dirname(OUTPUT_JSON_FILE)
+    if output_mode in ("file", "both"):
+        out_dir = os.path.dirname(output_json_file)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        with open(OUTPUT_JSON_FILE, 'w', encoding='utf-8') as f:
+        with open(output_json_file, 'w', encoding='utf-8') as f:
             f.write(json_str)
-        print(f"\n[+] 已保存到 {OUTPUT_JSON_FILE}")
+        print(f"\n[+] 已保存到 {output_json_file}")
 
 # ---------- 主入口 ----------
-def main():
+def main(
+    input_mode: str = INPUT_MODE,
+    input_file: str = INPUT_FILE,
+    output_mode: str = OUTPUT_MODE,
+    output_json_file: str = OUTPUT_JSON_FILE,
+    print_raw_hex: bool = PRINT_RAW_HEX,
+):
     """解码器主入口：加载 hex → 解码 → 输出"""
     try:
-        raw = load_data()
+        raw = load_data(input_mode, input_file)
         print(f"[+] 加载 {len(raw)} 字节")
-        parsed = decode(raw, include_raw_hex=PRINT_RAW_HEX)
-        output_result(parsed.to_dict())
+        parsed = decode(raw, include_raw_hex=print_raw_hex)
+        output_result(parsed.to_dict(), output_mode, output_json_file, print_raw_hex)
     except Exception as e:
         print(f"[-] 错误: {e}")
         sys.exit(1)

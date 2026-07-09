@@ -59,6 +59,7 @@ class QueryFrame:
     target_ip: str
     domain: str
     qtype: int = 1
+    port: int = 53
 
     def __post_init__(self):
         if not self.target_ip:
@@ -189,10 +190,10 @@ class AsyncUdpTransport(Transport):
         try:
             ipaddress.IPv4Address(frame.target_ip)
             family = socket.AF_INET
-            addr_tuple = (frame.target_ip, self.port)
+            addr_tuple = (frame.target_ip, frame.port)
         except ipaddress.AddressValueError:
             family = socket.AF_INET6
-            addr_tuple = (frame.target_ip, self.port, 0, 0)
+            addr_tuple = (frame.target_ip, frame.port, 0, 0)
         sock = socket.socket(family, socket.SOCK_DGRAM)
         sock.setblocking(False)
         loop = asyncio.get_event_loop()
@@ -212,16 +213,16 @@ class AsyncUdpTransport(Transport):
             except asyncio.TimeoutError:
                 log.warning(
                     "UDP TIMEOUT %.1fs: %s \u2192 %s:%d",
-                    self.timeout, frame.domain, frame.target_ip, self.port,
+                    self.timeout, frame.domain, frame.target_ip, frame.port,
                 )
                 raise TransportTimeoutError(
                     f"查询超时 ({self.timeout}s): "
-                    f"{frame.domain} → {frame.target_ip}:{self.port}"
+                    f"{frame.domain} → {frame.target_ip}:{frame.port}"
                 )
 
             if not response_bytes:
                 raise TransportBadResponseError(
-                    f"空响应: {frame.domain} → {frame.target_ip}:{self.port}"
+                    f"空响应: {frame.domain} → {frame.target_ip}:{frame.port}"
                 )
 
             # 7. 验证 TxID
@@ -231,7 +232,7 @@ class AsyncUdpTransport(Transport):
                     "UDP TxID mismatch: sent=%#06x recv=%#06x, "
                     "%s \u2192 %s:%d",
                     tx_id, response_tx_id,
-                    frame.domain, frame.target_ip, self.port,
+                    frame.domain, frame.target_ip, frame.port,
                 )
                 raise TransportBadResponseError(
                     f"TxID 不匹配: 发送 {tx_id:#06x}, "
@@ -244,7 +245,7 @@ class AsyncUdpTransport(Transport):
             except Exception as e:
                 raise TransportBadResponseError(
                     f"响应解析失败 ({e}): "
-                    f"{frame.domain} → {frame.target_ip}:{self.port}"
+                    f"{frame.domain} → {frame.target_ip}:{frame.port}"
                 )
 
         except TransportError:
@@ -252,11 +253,11 @@ class AsyncUdpTransport(Transport):
         except OSError as e:
             log.warning(
                 "UDP NETWORK ERROR: %s \u2192 %s:%d: %s",
-                frame.domain, frame.target_ip, self.port, e,
+                frame.domain, frame.target_ip, frame.port, e,
             )
             raise TransportNetworkError(
                 f"网络错误 ({e}): "
-                f"{frame.domain} → {frame.target_ip}:{self.port}"
+                f"{frame.domain} → {frame.target_ip}:{frame.port}"
             )
         finally:
             sock.close()

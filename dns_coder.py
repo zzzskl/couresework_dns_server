@@ -152,8 +152,22 @@ def encode_rdata(rdata: Any, rtype: int, rtype_str: str = 'Unknown') -> bytes:
     # AAAA 记录 (IPv6)
     if rtype == 28 or rtype_str_upper == 'AAAA':
         if isinstance(rdata, str):
-            # 简单处理: 按 : 分割，补零
+            # 支持完整 8 段格式和 RFC 5952 简写格式（如 ::1、2001:db8::1）
             parts = rdata.split(':')
+            # 处理 :: 简写 — 计数空段位置并补零
+            empty_count = parts.count('')
+            if empty_count > 2:  # 最多两个连续冒号
+                return b'\x00' * 16
+            if empty_count == 1:
+                # :: 出现在开头 (parts[0]=='') 或中间 (parts[i]=='')
+                idx = parts.index('')
+                # 移除空段，补入应有的零段
+                parts.pop(idx)
+                zeros_needed = 9 - len(parts)
+                parts[idx:idx] = ['0'] * zeros_needed
+            elif empty_count == 2:
+                # :: 单独出现（只有一个元素且为空）
+                parts = ['0'] * 8
             if len(parts) == 8:
                 result = b''
                 for p in parts:
@@ -364,7 +378,7 @@ def encode_message(parsed: Union['DnsMessage', Dict[str, Any]],
 
 
 # ══════════════════════════════════════════════════════════════════
-# CLI 配置与入口（模块级变量供测试 monkeypatch）
+# CLI 配置与入口（模块级变量作为默认值，可通过 main() 参数覆盖）
 # ══════════════════════════════════════════════════════════════════
 
 INPUT_MODE = "file"                 # "file" 或 "stdin"
@@ -376,48 +390,56 @@ PRINT_PROGRESS = True               # 是否打印编码过程
 
 
 # ---------- 输入加载 ----------
-def load_input() -> Dict[str, Any]:
+def load_input(
+    input_mode: str = INPUT_MODE,
+    input_json_file: str = INPUT_JSON_FILE,
+) -> Dict[str, Any]:
     """根据配置加载 JSON 数据"""
-    if INPUT_MODE == "stdin":
+    if input_mode == "stdin":
         print("[*] 等待从标准输入 (stdin) 粘贴 JSON，按 Ctrl+D 结束...")
         content = sys.stdin.read()
         return json.loads(content)
-    elif INPUT_MODE == "file":
-        if not os.path.exists(INPUT_JSON_FILE):
-            raise FileNotFoundError(f"找不到输入文件: {INPUT_JSON_FILE}")
-        with open(INPUT_JSON_FILE, 'r', encoding='utf-8') as f:
+    elif input_mode == "file":
+        if not os.path.exists(input_json_file):
+            raise FileNotFoundError(f"找不到输入文件: {input_json_file}")
+        with open(input_json_file, 'r', encoding='utf-8') as f:
             return json.load(f)
     else:
         raise ValueError("INPUT_MODE 必须是 'file' 或 'stdin'")
 
 
 # ---------- 输出导出 ----------
-def export_output(binary_data: bytes):
+def export_output(
+    binary_data: bytes,
+    output_mode: str = OUTPUT_MODE,
+    output_hex_file: str = OUTPUT_HEX_FILE,
+    output_bin_file: str = OUTPUT_BIN_FILE,
+):
     """根据配置输出编码结果"""
     hex_str = ' '.join(f'{b:02x}' for b in binary_data)
 
-    if OUTPUT_MODE in ("stdout", "both"):
+    if output_mode in ("stdout", "both"):
         print("\n" + "=" * 60)
         print("编码结果 (Hex):")
         print("=" * 60)
         print(hex_str)
         print(f"\n[+] 总长度: {len(binary_data)} 字节")
 
-    if OUTPUT_MODE in ("file_hex", "both"):
-        out_dir = os.path.dirname(OUTPUT_HEX_FILE)
+    if output_mode in ("file_hex", "both"):
+        out_dir = os.path.dirname(output_hex_file)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        with open(OUTPUT_HEX_FILE, 'w', encoding='utf-8') as f:
+        with open(output_hex_file, 'w', encoding='utf-8') as f:
             f.write(hex_str)
-        print(f"\n[+] Hex 已保存至: {OUTPUT_HEX_FILE}")
+        print(f"\n[+] Hex 已保存至: {output_hex_file}")
 
-    if OUTPUT_MODE in ("file_bin", "both"):
-        out_dir = os.path.dirname(OUTPUT_BIN_FILE)
+    if output_mode in ("file_bin", "both"):
+        out_dir = os.path.dirname(output_bin_file)
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
-        with open(OUTPUT_BIN_FILE, 'wb') as f:
+        with open(output_bin_file, 'wb') as f:
             f.write(binary_data)
-        print(f"[+] 二进制已保存至: {OUTPUT_BIN_FILE}")
+        print(f"[+] 二进制已保存至: {output_bin_file}")
 
 
 # ---------- 可选：往返校验 ----------
@@ -446,25 +468,32 @@ def verify_roundtrip(original_parsed, encoded_data: bytes):
 
 
 # ---------- 主入口 ----------
-def main():
+def main(
+    input_mode: str = INPUT_MODE,
+    input_json_file: str = INPUT_JSON_FILE,
+    output_mode: str = OUTPUT_MODE,
+    output_hex_file: str = OUTPUT_HEX_FILE,
+    output_bin_file: str = OUTPUT_BIN_FILE,
+    print_progress: bool = PRINT_PROGRESS,
+):
     """编码器主入口：加载 JSON → 编码 → 导出 → 校验"""
     try:
         print("[*] DNS 编码器启动...")
-        if PRINT_PROGRESS:
-            print(f"[*] 输入模式: {INPUT_MODE}, 输出模式: {OUTPUT_MODE}")
+        if print_progress:
+            print(f"[*] 输入模式: {input_mode}, 输出模式: {output_mode}")
 
         # 1. 加载 JSON
-        parsed_data = load_input()
-        if PRINT_PROGRESS:
+        parsed_data = load_input(input_mode, input_json_file)
+        if print_progress:
             print(f"[+] JSON 加载成功")
 
         # 2. 编码为二进制
         binary_output = encode_message(parsed_data)
-        if PRINT_PROGRESS:
+        if print_progress:
             print(f"[+] 编码完成，生成 {len(binary_output)} 字节")
 
         # 3. 导出
-        export_output(binary_output)
+        export_output(binary_output, output_mode, output_hex_file, output_bin_file)
 
         # 4. 可选校验
         verify_roundtrip(parsed_data, binary_output)

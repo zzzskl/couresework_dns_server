@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional, Union
 
-from dns_common import QTYPE_MAP, QCLASS_MAP, RCODE_MAP, encode_domain
+from dns_common import QTYPE_MAP, QTYPE_REVERSE, QCLASS_MAP, QCLASS_REVERSE, RCODE_MAP, encode_domain
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -113,9 +113,9 @@ class DnsQuestion:
         return {
             'qname': self.qname,
             'qtype': self.qtype,
-            'qtype_str': self.qtype_str or QTYPE_MAP.get(self.qtype, 'Unknown'),
+            'qtype_str': self.qtype_str or QTYPE_REVERSE.get(self.qtype, 'Unknown'),
             'qclass': self.qclass,
-            'qclass_str': self.qclass_str or QCLASS_MAP.get(self.qclass, 'Unknown'),
+            'qclass_str': self.qclass_str or QCLASS_REVERSE.get(self.qclass, 'Unknown'),
         }
 
     @classmethod
@@ -144,9 +144,9 @@ class DnsResourceRecord:
         return {
             'name': self.name,
             'type': self.rr_type,
-            'type_str': self.type_str or QTYPE_MAP.get(self.rr_type, 'Unknown'),
+            'type_str': self.type_str or QTYPE_REVERSE.get(self.rr_type, 'Unknown'),
             'class': self.rr_class,              # 用 'class' 键名兼容现有 pipeline
-            'class_str': self.class_str or QCLASS_MAP.get(self.rr_class, 'Unknown'),
+            'class_str': self.class_str or QCLASS_REVERSE.get(self.rr_class, 'Unknown'),
             'ttl': self.ttl,
             'rdata': self.rdata,
         }
@@ -245,8 +245,7 @@ class DnsMessage:
         result['authorities'] = [a.to_dict() for a in self.authorities]
         result['additionals'] = [a.to_dict() for a in self.additionals]
 
-        if self.raw_hex is not None:
-            result['raw_hex'] = self.raw_hex
+        result['raw_hex'] = self.raw_hex
 
         return result
 

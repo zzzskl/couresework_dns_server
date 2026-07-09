@@ -12,9 +12,13 @@ API 与 DnsCache 一致:
 
 用法:
     db = DnsDatabase("data/dns_cache.db")
-    msg = db.get_answer("www.example.com", 1)
-    db.set_answer("www.example.com", 1, 1, response_msg)
-    db.close()
+    try:
+        msg = db.get_answer("www.example.com", 1)
+        db.set_answer("www.example.com", 1, 1, response_msg)
+    finally:
+        db.close()
+    # 注意：DnsDatabase 未实现 __enter__/__exit__ 上下文管理器协议，
+    # 调用方需自行管理 close()，推荐使用 try/finally。
 
 分层归属 — Layer 2.5 持久化数据访问:
     与 DnsCache（Layer 2 内存缓存）平级且对称，
@@ -69,6 +73,9 @@ class DnsDatabase:
 
     线程安全：SQLite WAL 模式下读读不阻塞，写写串行。
     对演示项目场景完全足够。
+
+    注意：未实现 __enter__/__exit__ 上下文管理器协议，
+    调用方需手动调用 close()，推荐使用 try/finally 确保释放。
     """
 
     def __init__(self, db_path: Optional[str] = None):
