@@ -87,9 +87,10 @@ class ResolutionEngine:
         # ── push: 加缓存检测 ────────────────────────────────
         original_push = ts.push
 
-        def cached_push(domain: str) -> None:
+        def cached_push(domain: str, qtype: int | None = None) -> None:
+            effective_qtype = qtype if qtype is not None else ts._qtype
             if engine._cache:
-                msg = engine._cache.get_answer(domain, ts._qtype)
+                msg = engine._cache.get_answer(domain, effective_qtype)
                 if msg is not None:
                     answer_ip = next(
                         (r.rdata for r in msg.answers if r.rr_type in (1, 28)),
@@ -99,7 +100,7 @@ class ResolutionEngine:
                     log.info("Cache HIT for %s", domain)
                     return  # 不压栈，不再将控制权返回栈的 push 流程
             log.info("Queue task: %s", domain)
-            original_push(domain)
+            original_push(domain, qtype=qtype)
 
         ts.push = cached_push
 

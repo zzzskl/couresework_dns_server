@@ -165,11 +165,11 @@ class QueryStack(StackBase[QueryFrame], StateMachineBase[QueryStatus]):
             AssertionError: _has_ns_glue 返回 True 但未找到胶水 IP（不应发生）。
         """
         ns_targets = {
-            rec.rdata for rec in response.authorities if rec.rr_type == 2
+            rec.rdata.lower() for rec in response.authorities if rec.rr_type == 2
         }
         current = self._peek()
         for rec in response.additionals:
-            if rec.rr_type in (1, 28) and rec.name in ns_targets:
+            if rec.rr_type in (1, 28) and rec.name.lower() in ns_targets:
                 return QueryFrame(
                     rec.rdata,
                     current.domain,

@@ -56,14 +56,19 @@ class TaskStack(StackBase[Task]):
 
     # ── 外部接口 ──────────────────────────────────────────
 
-    def push(self, domain: str) -> None:
+    def push(self, domain: str, qtype: int | None = None) -> None:
         """
         将域名作为 NEW 任务压入栈顶。
+
+        Args:
+            domain: 查询域名。
+            qtype:  查询类型，None 表示使用栈级 self._qtype。
 
         Raises:
             RuntimeError: 栈深度超过 MAX_DEPTH 上限（由 _push 守卫）。
         """
-        self._push(Task(domain=domain, status=TaskStatus.NEW))
+        actual_qtype = self._qtype if qtype is None else qtype
+        self._push(Task(domain=domain, status=TaskStatus.NEW, qtype=actual_qtype))
         self._mark_visited(domain)
 
     async def run(self) -> None:
@@ -81,7 +86,7 @@ class TaskStack(StackBase[Task]):
 
             # ── NEW ──────────────────────────────────────
             if task.status == TaskStatus.NEW:
-                frame = QueryFrame(self._initial_targets[0], task.domain, self._qtype)
+                frame = QueryFrame(self._initial_targets[0], task.domain, task.qtype)
                 qs.push(frame, list(self._initial_targets))
                 transition_status(task, TaskStatus.PENDING, TaskStatus.NEW)
                 await qs.run()
@@ -162,7 +167,9 @@ class TaskStack(StackBase[Task]):
     # ── 响应分析 ────────────────────────────────────────
 
     def _has_answer(self, response: DnsMessage) -> bool:
-        """答案段是否有非 CNAME 的有效答案记录。"""
+        """答案段是否有有效答案记录。当查询类型为 CNAME(5) 时，CNAME 就是最终答案。"""
+        if self._qtype == 5:
+            return len(response.answers) > 0
         return any(rec.rr_type != 5 for rec in response.answers)
 
     def _has_cname(self, response: DnsMessage) -> bool:
@@ -170,8 +177,8 @@ class TaskStack(StackBase[Task]):
         return any(rec.rr_type == 5 for rec in response.answers)
 
     def _has_referral(self, response: DnsMessage) -> bool:
-        """权威段是否有 NS 记录（且无胶水——胶水已在 Query 层处理）。"""
-        return response.nscount > 0
+        """权威段是否有 NS 记录（而非 SOA 等其他记录）。"""
+        return any(rec.rr_type == 2 for rec in response.authorities)
 
     # ── 状态转换处理（纯逻辑，无缓存意识） ──────────────
 
@@ -215,5 +222,5 @@ class TaskStack(StackBase[Task]):
         for rec in response.authorities:
             if rec.rr_type == 2:  # NS
                 ns_domain = rec.rdata
-                self.push(ns_domain)  # 由 Engine 增强版处理缓存
+                self.push(ns_domain, qtype=1)  # NS 解析始终用 A 记录
                 break

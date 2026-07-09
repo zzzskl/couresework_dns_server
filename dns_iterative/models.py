@@ -36,9 +36,11 @@ class Task:
 
     只包含两个字段，不携带 resultData——跨任务数据传递由
     Task Stack 对象的 resultData 字段负责。
+    qtype 字段表示该任务的查询类型，默认 1 (A)。
     """
     domain: str
     status: TaskStatus = TaskStatus.NEW
+    qtype: int = 1
 
 
 @dataclass
